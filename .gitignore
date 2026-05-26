@@ -1,0 +1,10 @@
+*.o
+*.obj
+*.exe
+triple_pendulum
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+.vscode/
+.idea/

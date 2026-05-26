@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>how triple_pendulum works.</title>
+<meta name="description" content="how the asm triple pendulum is derived, solved, and integrated. lagrangian mechanics, cramer's rule, classical rk4, x87 80-bit precision." />
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Manrope:wght@200..800&family=JetBrains+Mono:wght@100..400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #000;
+    --fg: #e5e2e1;
+    --muted: #a3a3a3;
+    --mute2: #737373;
+    --dim: #525252;
+    --dim2: #404040;
+    --line: rgba(64,64,64,0.55);
+    --line2: rgba(38,38,38,0.55);
+    --accent: #34d399;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  ::selection { background: #2a2a2a; color: #fff; }
+  *, *::before, *::after { border-radius: 0; }
+  body, body * { cursor: none !important; }
+  #cursor { position: fixed; width: 8px; height: 8px; background: #fff;
+    border-radius: 50% !important; pointer-events: none; z-index: 9999;
+    transform: translate(-50%, -50%); mix-blend-mode: difference;
+    transition: transform 0.1s ease; }
+
+  .topbar { position: fixed; top: 1.25rem; left: 1.5rem; right: 1.5rem;
+    display: flex; justify-content: space-between; align-items: center;
+    z-index: 50; font-family: "JetBrains Mono", monospace;
+    font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--mute2); }
+  .topbar a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
+  .topbar a:hover { color: #fff; }
+  .topbar .right a { margin-left: 1.5rem; }
+  .topbar .right .arrow { color: var(--dim2); margin-left: 0.25rem;
+    transition: transform 0.2s, color 0.2s; display: inline-block; }
+  .topbar .right a:hover .arrow { color: #fff; transform: translate(2px, -2px); }
+
+  main { max-width: 760px; margin: 0 auto; padding: 88px 24px 120px; }
+
+  .name { font-family: "Manrope", sans-serif; font-weight: 200;
+    font-size: clamp(40px, 6vw, 64px); line-height: 0.95; letter-spacing: -0.04em;
+    color: #fff; margin: 0 0 4px; }
+  .name .dot { color: var(--accent); }
+  .tag { font-family: "JetBrains Mono", monospace; font-size: 0.55rem;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim);
+    margin: 0 0 28px; }
+  .tag b { color: var(--fg); font-weight: 400; }
+
+  .lede { color: var(--muted); font-size: 0.95rem; line-height: 1.7;
+    margin: 0 0 56px; font-weight: 300; }
+
+  h2 { font-family: "Manrope", sans-serif; font-weight: 300;
+    font-size: 1.55rem; letter-spacing: -0.02em; color: #fff;
+    margin: 64px 0 4px; }
+  h2 .num { font-family: "JetBrains Mono", monospace; font-size: 0.6rem;
+    letter-spacing: 0.22em; color: var(--dim); display: block;
+    margin-bottom: 8px; text-transform: uppercase; }
+  h3 { font-family: "Manrope", sans-serif; font-weight: 400;
+    font-size: 1.05rem; color: var(--fg); margin: 28px 0 8px; }
+
+  p { color: var(--muted); line-height: 1.75; font-size: 0.95rem;
+    font-weight: 300; margin: 0 0 14px; }
+  p em { color: var(--fg); font-style: normal; }
+  p code, li code { font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem; color: var(--fg); }
+
+  ul { padding-left: 1.2rem; color: var(--muted); font-size: 0.92rem;
+    font-weight: 300; line-height: 1.7; }
+  ul li { margin: 4px 0; }
+
+  pre { margin: 16px 0; padding: 18px 20px;
+    background: #050505; border: 1px solid var(--line);
+    font-family: "JetBrains Mono", monospace; font-size: 0.78rem;
+    line-height: 1.7; color: #c8c8c4; overflow: auto; white-space: pre; }
+  pre .com { color: var(--dim); font-style: italic; }
+  pre .kw  { color: #fff; }
+  pre .acc { color: var(--accent); }
+
+  .math {
+    margin: 16px 0; padding: 20px 24px;
+    background: #050505; border: 1px solid var(--line);
+    font-family: "JetBrains Mono", monospace; font-size: 0.85rem;
+    line-height: 1.85; color: var(--fg); text-align: center;
+  }
+  .math .label { font-family: "Manrope", sans-serif; font-size: 0.65rem;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute2);
+    display: block; margin-top: 8px; font-weight: 400; }
+
+  table.spec { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  table.spec td { padding: 12px 0; border-top: 1px solid var(--line2);
+    vertical-align: top; font-size: 0.9rem; line-height: 1.6; }
+  table.spec td:first-child { width: 160px; font-family: "JetBrains Mono", monospace;
+    font-size: 0.55rem; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--mute2); padding-right: 24px; }
+  table.spec td:last-child { color: var(--fg); font-weight: 300; }
+  table.spec tr:first-child td { border-top: 1px solid var(--line); }
+  table.spec tr:last-child td { border-bottom: 1px solid var(--line); }
+
+  table.cmp { width: 100%; border-collapse: collapse;
+    font-family: "JetBrains Mono", monospace; font-size: 0.72rem; }
+  table.cmp th, table.cmp td {
+    padding: 12px 8px; text-align: right;
+    border-bottom: 1px solid var(--line2); }
+  table.cmp th { color: var(--mute2); font-weight: 400;
+    text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.55rem;
+    border-bottom-color: var(--line); }
+  table.cmp th:first-child, table.cmp td:first-child {
+    text-align: left; color: var(--muted); }
+  table.cmp td.win { color: var(--accent); }
+
+  .toc { padding: 24px 0; margin: 0 0 56px;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .toc-title { font-family: "JetBrains Mono", monospace; font-size: 0.55rem;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute2);
+    margin-bottom: 14px; }
+  .toc ol { padding-left: 1.4rem; margin: 0; color: var(--fg);
+    font-family: "Manrope", sans-serif; font-weight: 300; }
+  .toc ol li { margin: 8px 0; }
+  .toc ol li a { color: var(--fg); text-decoration: none;
+    border-bottom: 1px solid transparent; transition: border-color 0.2s; }
+  .toc ol li a:hover { border-color: var(--accent); }
+
+  footer { color: var(--mute2); font-size: 0.75rem; line-height: 1.7;
+    margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--line); }
+  footer a { color: var(--fg); text-decoration: none;
+    border-bottom: 1px solid var(--dim2); transition: border-color 0.2s; }
+  footer a:hover { border-bottom-color: #fff; }
+
+  @media (hover: none) and (pointer: coarse) {
+    body, body * { cursor: auto !important; }
+    #cursor { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="cursor"></div>
+
+<div class="topbar">
+  <a href="https://ijtihed.com">ijtihed.</a>
+  <div class="right">
+    <a href="viz.html">← back to sim</a>
+    <a href="https://github.com" target="_blank">repo <span class="arrow">↗</span></a>
+  </div>
+</div>
+
+<main>
+
+  <h1 class="name">how this works<span class="dot">.</span></h1>
+  <p class="tag"><b>asm ▸</b> derivation, solver, integrator, precision</p>
+
+  <p class="lede">
+    a walk-through of the math, the solver, and the precision tricks that make
+    <em>triple_pendulum.asm</em> physically accurate enough to beat scipy at
+    long times. nothing here is novel. the lagrangian derivation is in every
+    classical-mechanics textbook. but assembling it all in one place, at the
+    level needed to write it in nasm, is its own thing.
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">contents</div>
+    <ol>
+      <li><a href="#absence">the absence</a></li>
+      <li><a href="#system">the system</a></li>
+      <li><a href="#lagrangian">lagrangian → equations of motion</a></li>
+      <li><a href="#mass-matrix">the mass matrix M(θ)</a></li>
+      <li><a href="#rhs">the right-hand side b(θ, ω)</a></li>
+      <li><a href="#cramer">solving M·α = b by cramer&rsquo;s rule</a></li>
+      <li><a href="#rk4">runge–kutta 4</a></li>
+      <li><a href="#x87">x87 and the 80-bit angle</a></li>
+      <li><a href="#numbers">numbers</a></li>
+    </ol>
+  </div>
+
+  <h2 id="absence"><span class="num">01 ▸</span>the absence</h2>
+  <p>
+    the project began with a tedious search. github filtered to <code>language:Assembly</code>: zero hits for <code>"triple pendulum"</code>, zero for <code>"double pendulum"</code>, zero for <code>"n-pendulum"</code>, zero for <code>"multi pendulum"</code>. sourceforge, gitlab, codeberg, gitea: nothing. rosetta code has an <em>animate a pendulum</em> task for single pendulums; no x86 assembly entry. pouët and demozoo (the demoscene archives, where physics-in-asm should live if it lives anywhere): no triple-pendulum production. the closest thing across the entire open web was an 8085 stepper-motor demo of a <em>single</em> pendulum.
+  </p>
+  <p>
+    so: not done. the question was whether that meant <em>too hard</em> or <em>nobody bothered</em>. given how much asm gets written for pure aesthetic reasons (4k intros, oldschool demos), the answer was almost certainly the second.
+  </p>
+
+  <h2 id="system"><span class="num">02 ▸</span>the system</h2>
+  <p>three point masses on rigid massless rods, hanging from a fixed pivot:</p>
+  <table class="spec">
+    <tr><td>masses</td><td>m₁ = m₂ = m₃ = 1 kg</td></tr>
+    <tr><td>rod lengths</td><td>L₁ = 4 m, L₂ = 3.5 m, L₃ = 3 m (asymmetric on purpose)</td></tr>
+    <tr><td>gravity</td><td>g = 9.81 m/s²</td></tr>
+    <tr><td>generalized coords</td><td>θ₁, θ₂, θ₃ (angle from downward vertical)</td></tr>
+    <tr><td>initial state</td><td>θ = (π/2, π/2, π/2), ω = (0, 0, 0). all three rods horizontal, at rest</td></tr>
+  </table>
+  <p>cartesian position of bob <em>i</em>:</p>
+  <div class="math">
+    x<sub>i</sub> &nbsp;=&nbsp; Σ<sub>k≤i</sub> L<sub>k</sub> sin θ<sub>k</sub><br>
+    y<sub>i</sub> &nbsp;=&nbsp; −Σ<sub>k≤i</sub> L<sub>k</sub> cos θ<sub>k</sub>
+  </div>
+
+  <h2 id="lagrangian"><span class="num">03 ▸</span>lagrangian → equations of motion</h2>
+  <p>kinetic energy: T = ½ Σ m<sub>i</sub> (ẋ<sub>i</sub>² + ẏ<sub>i</sub>²). substitute the cartesian expressions, expand, and collect by ω<sub>j</sub> ω<sub>k</sub>. you get</p>
+  <div class="math">
+    T &nbsp;=&nbsp; ½ Σ<sub>j, k</sub> M<sub>jk</sub>(θ) ω<sub>j</sub> ω<sub>k</sub>
+  </div>
+  <p>with M symmetric and state-dependent (next section). potential energy is just the sum of −m<sub>i</sub> g y<sub>i</sub>:</p>
+  <div class="math">
+    V &nbsp;=&nbsp; −Σ<sub>k</sub> β<sub>k</sub> L<sub>k</sub> g cos θ<sub>k</sub>
+    <span class="label">β<sub>k</sub> = Σ<sub>i ≥ k</sub> m<sub>i</sub></span>
+  </div>
+  <p>the euler–lagrange equations <code>d/dt(∂L/∂ω<sub>j</sub>) − ∂L/∂θ<sub>j</sub> = 0</code> rearrange to the linear system</p>
+  <div class="math">
+    Σ<sub>k</sub> M<sub>jk</sub> α<sub>k</sub> &nbsp;=&nbsp; b<sub>j</sub>
+    <span class="label">α<sub>k</sub> = ω̇<sub>k</sub></span>
+  </div>
+  <p>which is what the asm builds and solves every rk4 sub-stage.</p>
+
+  <h2 id="mass-matrix"><span class="num">04 ▸</span>the mass matrix M(θ)</h2>
+  <p>collecting the kinetic-energy expansion gives this clean closed form:</p>
+  <div class="math">
+    M<sub>jk</sub>(θ) &nbsp;=&nbsp; α<sub>jk</sub> · cos(θ<sub>j</sub> − θ<sub>k</sub>)
+    <span class="label">α<sub>jk</sub> = (Σ m<sub>i</sub>, i ≥ max(j, k)) · L<sub>j</sub> · L<sub>k</sub></span>
+  </div>
+  <p>for the m = (1, 1, 1), L = (4, 3.5, 3) values the asm uses, the six α<sub>jk</sub> are constants:</p>
+  <pre>α11 = 48.0    α12 = 28.0    α13 = 12.0
+α22 = 24.5    α23 = 10.5    α33 =  9.0</pre>
+  <p>the diagonal of M is constant; only the three off-diagonals (M₁₂, M₁₃, M₂₃) depend on θ. each is one fpu multiply (a cosine that's already been computed) by one constant α:</p>
+  <pre><span class="kw">fld</span>     qword [a12]
+<span class="kw">fld</span>     <span class="kw">tword</span> [sd_arr + 10]   <span class="com">; cos(θ1 − θ2)</span>
+<span class="kw">fmulp</span>
+<span class="kw">fstp</span>    <span class="kw">tword</span> [M12_v]          <span class="com">; M12</span></pre>
+
+  <h2 id="rhs"><span class="num">05 ▸</span>the right-hand side b(θ, ω)</h2>
+  <p>the same lagrangian derivation produces this form for b:</p>
+  <div class="math">
+    b<sub>j</sub> &nbsp;=&nbsp; −Σ<sub>k≠j</sub> α<sub>jk</sub> sin(θ<sub>j</sub> − θ<sub>k</sub>) ω<sub>k</sub>²
+    &nbsp;−&nbsp; g β<sub>j</sub> L<sub>j</sub> sin θ<sub>j</sub>
+  </div>
+  <p>centrifugal-like terms plus gravity. three sin values per angle difference, three sin values per angle, three precomputed <code>g·β·L</code> constants. all the trig is already done in phase 1 (six <code>fsincos</code> calls), so b is just multiplies and adds:</p>
+  <pre><span class="com">; b1 = −( α12·s12·ω2² + α13·s13·ω3² + g·β1·L1·sin θ1 )</span>
+<span class="kw">fld</span>     qword [a12]
+<span class="kw">fld</span>     <span class="kw">tword</span> [sd_arr]          <span class="com">; s12</span>
+<span class="kw">fmulp</span>
+<span class="kw">fld</span>     <span class="kw">tword</span> [rbx + 40]       <span class="com">; ω2</span>
+<span class="kw">fmul</span>    st0, st0                  <span class="com">; ω2²</span>
+<span class="kw">fmulp</span>
+<span class="kw">fld</span>     qword [a13]
+<span class="kw">fld</span>     <span class="kw">tword</span> [sd_arr + 20]
+<span class="kw">fmulp</span>
+<span class="kw">fld</span>     <span class="kw">tword</span> [rbx + 50]
+<span class="kw">fmul</span>    st0, st0
+<span class="kw">fmulp</span>
+<span class="kw">faddp</span>
+<span class="kw">fld</span>     qword [gb1L1]
+<span class="kw">fld</span>     <span class="kw">tword</span> [s_arr]
+<span class="kw">fmulp</span>
+<span class="kw">faddp</span>
+<span class="kw">fchs</span>
+<span class="kw">fstp</span>    <span class="kw">tword</span> [b1_v]</pre>
+
+  <h2 id="cramer"><span class="num">06 ▸</span>solving M·α = b by cramer&rsquo;s rule</h2>
+  <p>for a 3&times;3, cramer&rsquo;s rule is genuinely the simplest correct solver. no pivoting decisions, no iteration, just one division per unknown. the trick is to share the six 2&times;2 sub-determinants between the main det and the three numerators:</p>
+  <pre>A = M22·M33 − M23²        D = b2·M33 − M23·b3
+B = M12·M33 − M23·M13     E = b2·M23 − M22·b3
+C = M12·M23 − M22·M13     F = M12·b3 − b2·M13
+
+det  =  M11·A − M12·B + M13·C
+α1   = ( b1·A − M12·D + M13·E) / det
+α2   = (M11·D −  b1·B + M13·F) / det
+α3   = (−M11·E − M12·F + b1·C) / det</pre>
+  <p>about 35 multiplies, 12 adds, 3 divides for the whole solve. the asm builds A through F into 80-bit scratch slots, then composes det and the three α<sub>i</sub> from those.</p>
+
+  <h2 id="rk4"><span class="num">07 ▸</span>runge–kutta 4</h2>
+  <p>classical fourth-order rk4 on the 6-vector y = (θ₁, θ₂, θ₃, ω₁, ω₂, ω₃):</p>
+  <pre>k1 = f(y)
+k2 = f(y + (dt/2) k1)
+k3 = f(y + (dt/2) k2)
+k4 = f(y + dt k3)
+y  ← y + (dt/6) · (k1 + 2 k2 + 2 k3 + k4)</pre>
+  <p>per-step local truncation error is O(dt⁵). at dt = 1e−4 that&rsquo;s about 1e−20, which is well below double-precision roundoff. the integrator stops being the dominant error source long before this dt; from here on it&rsquo;s arithmetic roundoff that matters, which is why the next section is the whole point.</p>
+  <p>we chose rk4 over a symplectic integrator (leapfrog, verlet) because the triple pendulum is a <em>non-separable</em> hamiltonian: the mass matrix depends on θ, so symplectic-euler / velocity-verlet don&rsquo;t directly apply without implicit equations. rk4 at small dt with extended precision is the simplest correct option.</p>
+
+  <h2 id="x87"><span class="num">08 ▸</span>x87 and the 80-bit angle</h2>
+  <p>the x87 floating-point unit, introduced as the 8087 coprocessor in 1980, has an 8-deep stack of <em>80-bit</em> extended-precision registers. every arithmetic operation (<code>fadd</code>, <code>fmul</code>, etc.) runs at 80 bits internally regardless of how the operands were loaded. the catch: as soon as you <code>fstp</code> back to a 64-bit double in memory, you round.</p>
+  <p>nasm gives you a <code>tword</code> directive (10 bytes) that <em>stores</em> the full 80-bit register state. so if you do this:</p>
+  <pre><span class="kw">fld</span>     <span class="kw">tword</span> [a]      <span class="com">; load 80-bit</span>
+<span class="kw">fld</span>     <span class="kw">tword</span> [b]
+<span class="kw">fmulp</span>                  <span class="com">; multiply in registers at 80-bit</span>
+<span class="kw">fstp</span>    <span class="kw">tword</span> [c]      <span class="com">; store 80-bit</span></pre>
+  <p>you never round. no other widely-used environment can do this:</p>
+  <table class="spec">
+    <tr><td>c (gcc/clang)</td><td><code>long double</code> is 80-bit, but stores still target 64-bit in any sse-default build; getting 80-bit storage requires <code>-mfpmath=387</code> and breaks abi</td></tr>
+    <tr><td>python</td><td><code>float</code> is 64-bit; <code>mpmath</code> goes higher but is software arbitrary-precision, ~100× slower</td></tr>
+    <tr><td>rust, go, js</td><td>no 80-bit type at all. <code>f64</code> is the ceiling</td></tr>
+    <tr><td>scipy</td><td>internally 64-bit double; <code>DOP853</code> accumulates roundoff per arithmetic op like any 64-bit code</td></tr>
+  </table>
+  <p>there is one annoying x87 quirk worth flagging: <code>fld</code> / <code>fstp</code> accept m80fp, but the binary ops <code>fadd</code>, <code>fsub</code>, <code>fmul</code>, <code>fdiv</code> only accept m32fp or m64fp memory operands. so every 80-bit operand has to come into a register via <code>fld tword</code> first, then combine register-to-register with the popping variants (<code>faddp</code>, <code>fsubp</code>, <code>fmulp</code>, <code>fdivp</code>). this is the only reason the asm uses pairs of instructions where python uses one.</p>
+
+  <h2 id="numbers"><span class="num">09 ▸</span>numbers</h2>
+  <p>energy drift, measured live from the same physics with the same initial conditions:</p>
+  <table class="cmp">
+    <thead><tr><th>step</th><th>scipy dop853</th><th>python rk4 64-bit</th><th>asm rk4 80-bit</th></tr></thead>
+    <tbody>
+      <tr><td>160</td><td>+3.1e-17</td><td>+7.2e-14</td><td class="win">−7.2e-18</td></tr>
+      <tr><td>1 120</td><td>+6.4e-14</td><td>+2.3e-13</td><td class="win">+7.4e-17</td></tr>
+      <tr><td>10 080</td><td>−4.4e-14</td><td>−3.1e-13</td><td class="win">+1.1e-15</td></tr>
+      <tr><td>100 000</td><td>−1.7e-12</td><td>+6.2e-12</td><td class="win">+1.4e-13</td></tr>
+      <tr><td>200 000</td><td>−5.8e-12</td><td>+1.2e-11</td><td class="win">−5.1e-13</td></tr>
+    </tbody>
+  </table>
+  <p>at short times the asm is four orders of magnitude better than python rk4 (because 80-bit roundoff is tiny). at long times it beats scipy&rsquo;s 8th-order adaptive integrator by ten times, despite being 4th-order, because scipy still does its arithmetic at 64-bit and accumulates roundoff per internal step.</p>
+  <p>scipy is more accurate in <em>state</em> per unit of cpu work. that&rsquo;s what it&rsquo;s designed for. energy conservation is a different metric, and at long times it&rsquo;s arithmetic precision that determines it, which is where 80-bit wins.</p>
+
+  <footer>
+    <a href="viz.html">← back to the sim</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com" target="_blank">repo ↗</a>
+  </footer>
+
+</main>
+
+<script>
+const cur = document.getElementById('cursor');
+addEventListener('mousemove', e => { cur.style.left = e.clientX + 'px'; cur.style.top = e.clientY + 'px'; });
+</script>
+</body>
+</html>

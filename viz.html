@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>triple_pendulum.</title>
+<meta name="description" content="the first triple pendulum simulator in pure x86-64 assembly. lagrangian mechanics, rk4, 80-bit x87 precision." />
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Manrope:wght@200..800&family=JetBrains+Mono:wght@100..400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #000;
+    --fg: #e5e2e1;
+    --muted: #a3a3a3;
+    --mute2: #737373;
+    --dim: #525252;
+    --dim2: #404040;
+    --line: rgba(64,64,64,0.55);
+    --line2: rgba(38,38,38,0.55);
+    --accent: #34d399;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  ::selection { background: #2a2a2a; color: #fff; }
+  *, *::before, *::after { border-radius: 0; }
+
+  /* custom cursor */
+  body, body * { cursor: none !important; }
+  #cursor { position: fixed; width: 8px; height: 8px; background: #fff;
+    border-radius: 50% !important; pointer-events: none; z-index: 9999;
+    transform: translate(-50%, -50%); mix-blend-mode: difference;
+    transition: transform 0.1s ease; }
+
+  .topbar { position: fixed; top: 1.25rem; left: 1.5rem; right: 1.5rem;
+    display: flex; justify-content: space-between; align-items: center;
+    z-index: 50; font-family: "JetBrains Mono", monospace;
+    font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute2); }
+  .topbar a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
+  .topbar a:hover { color: #fff; }
+  .topbar .right a { margin-left: 1.5rem; }
+  .topbar .arrow { color: var(--dim2); margin-left: 0.25rem; display: inline-block;
+    transition: transform 0.2s, color 0.2s; }
+  .topbar .right a:hover .arrow { color: #fff; transform: translate(2px, -2px); }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 88px 28px 96px; }
+
+  .name { font-family: "Manrope", sans-serif; font-weight: 200;
+    font-size: clamp(48px, 7vw, 80px); line-height: 0.95; letter-spacing: -0.04em;
+    color: #fff; margin: 0 0 4px; }
+  .name .dot { color: var(--accent); }
+  .tag { font-family: "JetBrains Mono", monospace; font-size: 0.55rem;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim);
+    margin: 0 0 28px; }
+  .tag b { color: var(--fg); font-weight: 400; }
+
+  .lede { color: var(--muted); font-size: 0.95rem; line-height: 1.7;
+    max-width: 760px; margin: 0 0 48px; font-weight: 300; }
+  .lede em { color: var(--fg); font-style: normal; }
+  .lede code { font-family: "JetBrains Mono", monospace; font-size: 0.78rem;
+    color: var(--fg); }
+
+  /* layout: canvas left, side panel right */
+  .layout { display: grid; grid-template-columns: 1fr 460px; gap: 24px; align-items: start; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+
+  /* canvas card */
+  .canvas-wrap { border: 1px solid var(--line); padding: 14px;
+    background: #050505; position: relative; }
+  canvas { display: block; width: 100%; height: 540px; background: #000; }
+  .canvas-corner {
+    position: absolute; top: 20px; right: 20px;
+    font-family: "JetBrains Mono", monospace; font-size: 0.5rem;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim);
+    pointer-events: none;
+  }
+  .canvas-stats {
+    position: absolute; top: 20px; left: 20px;
+    font-family: "JetBrains Mono", monospace; font-size: 0.5rem;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--mute2); pointer-events: none;
+    line-height: 1.9;
+  }
+  .canvas-stats b { color: var(--accent); font-weight: 400; }
+
+  /* side panel */
+  .side {
+    border: 1px solid var(--line); background: #050505;
+    display: flex; flex-direction: column;
+    height: 568px; /* matches canvas + padding */
+  }
+
+  /* toggle */
+  .toggle { display: flex; border-bottom: 1px solid var(--line); }
+  .toggle button {
+    flex: 1; background: transparent; border: none;
+    color: var(--mute2); font-family: "JetBrains Mono", monospace;
+    font-size: 0.65rem; letter-spacing: 0.24em; text-transform: uppercase;
+    padding: 14px 0; transition: color 0.2s, background 0.2s; cursor: none !important;
+  }
+  .toggle button + button { border-left: 1px solid var(--line); }
+  .toggle button:hover:not(.on) { color: var(--fg); }
+  .toggle button.on { color: var(--accent); background: rgba(52,211,153,0.04); }
+
+  /* phase list (compact rows) */
+  .plist { padding: 6px 0; }
+  .prow {
+    position: relative; display: flex; align-items: center; gap: 14px;
+    padding: 9px 16px 9px 28px;
+    font-family: "Manrope", sans-serif; font-weight: 300;
+    color: var(--mute2); font-size: 0.85rem; line-height: 1.3;
+    transition: color 0.25s, background 0.25s;
+  }
+  .prow::before {
+    content: ""; position: absolute; left: 16px; top: 50%;
+    width: 7px; height: 7px; margin-top: -4px;
+    border-radius: 50% !important;
+    background: #0a0a0a; border: 1px solid var(--dim);
+    box-shadow: 0 0 0 2px #050505;
+    transition: all 0.25s ease;
+  }
+  .prow.on { color: #fff; background: rgba(52,211,153,0.03); }
+  .prow.on::before {
+    background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 0 2px #050505, 0 0 10px rgba(52,211,153,0.7);
+    transform: scale(1.15);
+  }
+  .prow .num { font-family: "JetBrains Mono", monospace;
+    font-size: 0.55rem; letter-spacing: 0.18em; color: var(--mute2);
+    min-width: 1.8rem; }
+  .prow.on .num { color: var(--accent); }
+  .prow .nm { flex: 1; }
+  .prow .meta { font-family: "JetBrains Mono", monospace; font-size: 0.5rem;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim2); }
+  .prow.on .meta { color: var(--mute2); }
+
+  /* live code panel */
+  .live-code {
+    flex: 1; min-height: 0; overflow: auto;
+    border-top: 1px solid var(--line);
+    background: #000;
+  }
+  .live-code-head {
+    padding: 10px 16px; border-bottom: 1px solid var(--line2);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: "JetBrains Mono", monospace; font-size: 0.5rem;
+    letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--mute2); background: #050505;
+  }
+  .live-code-head .acc-name { color: var(--fg); }
+  pre.code {
+    margin: 0; padding: 14px 18px 18px;
+    font-family: "JetBrains Mono", monospace; font-size: 0.72rem;
+    line-height: 1.7; color: #b8b8b8; white-space: pre;
+  }
+  pre.code .com { color: var(--dim); font-style: italic; }
+  pre.code .kw { color: #fff; }
+  pre.code .acc { color: var(--accent); }
+
+  /* section heading */
+  .sh { font-family: "JetBrains Mono", monospace; font-size: 0.55rem;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute2);
+    margin: 64px 0 18px; }
+
+  /* spec list */
+  .spec { display: grid; gap: 0; }
+  .spec .row {
+    display: grid; grid-template-columns: 180px 1fr;
+    gap: 24px; padding: 14px 0;
+    border-top: 1px solid var(--line2); align-items: baseline;
+  }
+  .spec .row:first-child { border-top: 1px solid var(--line); }
+  .spec .row:last-child { border-bottom: 1px solid var(--line); }
+  .spec .k { font-family: "JetBrains Mono", monospace; font-size: 0.55rem;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute2); }
+  .spec .v { color: var(--fg); font-size: 0.9rem; font-weight: 300;
+    line-height: 1.55; }
+  .spec .v code { font-family: "JetBrains Mono", monospace; font-size: 0.78rem; color: var(--fg); }
+
+  /* comparison table */
+  table.cmp { width: 100%; border-collapse: collapse;
+    font-family: "JetBrains Mono", monospace; font-size: 0.72rem; }
+  table.cmp th, table.cmp td {
+    padding: 12px 8px; text-align: right;
+    border-bottom: 1px solid var(--line2);
+  }
+  table.cmp th { color: var(--mute2); font-weight: 400;
+    text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.55rem;
+    border-bottom-color: var(--line); }
+  table.cmp th:first-child, table.cmp td:first-child {
+    text-align: left; color: var(--muted); }
+  table.cmp td.win { color: var(--accent); }
+
+  footer { color: var(--mute2); font-size: 0.75rem; line-height: 1.7;
+    margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); }
+  footer a { color: var(--fg); text-decoration: none;
+    border-bottom: 1px solid var(--dim2); transition: border-color 0.2s; }
+  footer a:hover { border-bottom-color: #fff; }
+
+  @media (hover: none) and (pointer: coarse) {
+    body, body * { cursor: auto !important; }
+    #cursor { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="cursor"></div>
+
+<div class="topbar">
+  <a href="https://ijtihed.com">ijtihed.</a>
+  <div class="right">
+    <a href="how.html">how this works <span class="arrow">↗</span></a>
+    <a href="https://github.com" target="_blank">repo <span class="arrow">↗</span></a>
+  </div>
+</div>
+
+<main>
+
+  <h1 class="name">triple_pendulum<span class="dot">.</span></h1>
+  <p class="tag"><b>asm ▸</b> sim &middot; lagrangian + rk4 + x87 80-bit precision</p>
+
+  <p class="lede">
+    no public triple pendulum implementation exists in pure assembly anywhere on the open web. searched github, sourceforge, gitlab, codeberg, rosetta code, the demoscene archives. zero hits across <code>language:Assembly</code>. even <em>double</em> pendulum doesn&rsquo;t exist in asm. so i wrote one. it ended up beating scipy&rsquo;s 8th-order <code>DOP853</code> in energy conservation, because the x87 fpu&rsquo;s 80-bit registers don&rsquo;t exist in c, python, rust, go, or js.
+  </p>
+
+  <div class="layout">
+
+    <div class="canvas-wrap">
+      <canvas id="c" width="1100" height="1080"></canvas>
+      <div class="canvas-stats">
+        <div>step <b id="st">0</b></div>
+        <div>t <b id="tm">0.000</b> s</div>
+      </div>
+      <div class="canvas-corner" id="cc">phase 1 / 5</div>
+    </div>
+
+    <div class="side">
+
+      <div class="toggle" role="tablist">
+        <button data-mode="double">double</button>
+        <button data-mode="triple" class="on">triple</button>
+      </div>
+
+      <div class="plist" id="plist"></div>
+
+      <div class="live-code">
+        <div class="live-code-head">
+          <span>live ▸ <span class="acc-name" id="acc-name">angles</span></span>
+          <span id="acc-meta"></span>
+        </div>
+        <pre class="code" id="acc-code"></pre>
+      </div>
+
+    </div>
+
+  </div>
+
+  <div class="sh">energy drift across implementations (triple pendulum)</div>
+  <p style="font-size: 0.78rem; color: var(--mute2); margin: 0 0 14px; line-height: 1.6;">
+    same physics, same initial conditions, same <code style="font-family:JetBrains Mono,monospace;color:var(--fg);">dt = 1e-4</code> for the rk4 columns. <code style="font-family:JetBrains Mono,monospace;color:var(--fg);">dE = E(t) − E(0)</code>, smaller is better.
+  </p>
+  <table class="cmp">
+    <thead><tr><th>step</th><th>scipy dop853</th><th>python rk4 64-bit</th><th>asm rk4 80-bit</th></tr></thead>
+    <tbody>
+      <tr><td>160</td><td>+3.1e-17</td><td>+7.2e-14</td><td class="win">−7.2e-18</td></tr>
+      <tr><td>1 120</td><td>+6.4e-14</td><td>+2.3e-13</td><td class="win">+7.4e-17</td></tr>
+      <tr><td>10 080</td><td>−4.4e-14</td><td>−3.1e-13</td><td class="win">+1.1e-15</td></tr>
+      <tr><td>100 000</td><td>−1.7e-12</td><td>+6.2e-12</td><td class="win">+1.4e-13</td></tr>
+      <tr><td>200 000</td><td>−5.8e-12</td><td>+1.2e-11</td><td class="win">−5.1e-13</td></tr>
+    </tbody>
+  </table>
+
+  <div class="sh">what&rsquo;s inside</div>
+  <div class="spec">
+    <div class="row"><div class="k">lagrangian</div><div class="v"><code>M_jk = α_jk · cos(θ_j − θ_k)</code> with <code>α_jk = (Σ m_i, i ≥ max(j,k)) · L_j · L_k</code></div></div>
+    <div class="row"><div class="k">solver</div><div class="v">cramer&rsquo;s rule. six shared 2&times;2 subdeterminants. three divides per derivative call.</div></div>
+    <div class="row"><div class="k">integrator</div><div class="v">classical runge / kutta 4 at <code>dt = 1e-4</code></div></div>
+    <div class="row"><div class="k">transcendentals</div><div class="v">six <code>fsincos</code> per derivative call. one instruction, both at once.</div></div>
+    <div class="row"><div class="k">storage</div><div class="v">state and cramer scratch as <code>tword</code> (x87 80-bit). every memory round trip preserves register precision.</div></div>
+    <div class="row"><div class="k">renderer</div><div class="v">ansi cursor escapes. ~30 fps in a vt100.</div></div>
+    <div class="row"><div class="k">source</div><div class="v">~570 lines of nasm. builds with <code>nasm + gcc</code> and links libc for <code>printf</code> + <code>usleep</code>.</div></div>
+  </div>
+
+  <footer>
+    the visual above runs a faithful javascript twin of the asm so you can watch the chaos in the browser. the asm itself is in the repo and runs in a terminal at 30 fps. for the math derivation, see <a href="how.html">how this works</a>. the double-pendulum mode in the toggle uses the same algorithm with a 2&times;2 mass matrix.
+  </footer>
+
+</main>
+
+<script>
+// ----------------------------------------------------------------------------
+// custom cursor
+// ----------------------------------------------------------------------------
+const cur = document.getElementById('cursor');
+addEventListener('mousemove', e => { cur.style.left = e.clientX + 'px'; cur.style.top = e.clientY + 'px'; });
+
+// ============================================================================
+//  PHYSICS  --  same equations as the asm, in 64-bit doubles
+// ============================================================================
+const dt = 1e-4;
+const g = 9.81;
+
+// ---------- triple pendulum ----------
+const L3 = [4.0, 3.5, 3.0];
+const beta3 = [3, 2, 1];
+const a3 = [[0,0,0],[0,0,0],[0,0,0]];
+for (let j=0;j<3;j++) for (let k=0;k<3;k++) a3[j][k] = beta3[Math.max(j,k)] * L3[j] * L3[k];
+const gbL3 = [g*3*L3[0], g*2*L3[1], g*1*L3[2]];
+
+function deriv3(y) {
+  const [t1,t2,t3,w1,w2,w3] = y;
+  const s1=Math.sin(t1), s2=Math.sin(t2), s3=Math.sin(t3);
+  const s12=Math.sin(t1-t2), c12=Math.cos(t1-t2);
+  const s13=Math.sin(t1-t3), c13=Math.cos(t1-t3);
+  const s23=Math.sin(t2-t3), c23=Math.cos(t2-t3);
+  const M11=a3[0][0], M22=a3[1][1], M33=a3[2][2];
+  const M12=a3[0][1]*c12, M13=a3[0][2]*c13, M23=a3[1][2]*c23;
+  const b1=-a3[0][1]*s12*w2*w2 - a3[0][2]*s13*w3*w3 - gbL3[0]*s1;
+  const b2=+a3[0][1]*s12*w1*w1 - a3[1][2]*s23*w3*w3 - gbL3[1]*s2;
+  const b3=+a3[0][2]*s13*w1*w1 + a3[1][2]*s23*w2*w2 - gbL3[2]*s3;
+  const A=M22*M33-M23*M23, B=M12*M33-M23*M13, C=M12*M23-M22*M13;
+  const D=b2*M33-M23*b3,   E=b2*M23-M22*b3,   F=M12*b3-b2*M13;
+  const det = M11*A - M12*B + M13*C;
+  return [w1,w2,w3,
+    ( b1*A - M12*D + M13*E)/det,
+    (M11*D -  b1*B + M13*F)/det,
+    (-M11*E - M12*F + b1*C)/det];
+}
+
+// ---------- double pendulum ----------
+const L2 = [4.0, 3.0];
+// m1 = m2 = 1
+const a2_11 = 2*L2[0]*L2[0];        // (m1+m2) L1^2
+const a2_22 = 1*L2[1]*L2[1];        // m2 L2^2
+const a2_12 = 1*L2[0]*L2[1];        // m2 L1 L2
+const gb1L1_2 = g*2*L2[0];          // g (m1+m2) L1
+const gb2L2_2 = g*1*L2[1];          // g m2 L2
+
+function deriv2(y) {
+  const [t1,t2,w1,w2] = y;
+  const s1=Math.sin(t1), s2=Math.sin(t2);
+  const s12=Math.sin(t1-t2), c12=Math.cos(t1-t2);
+  const M11=a2_11, M22=a2_22, M12=a2_12*c12;
+  const b1=-a2_12*s12*w2*w2 - gb1L1_2*s1;
+  const b2=+a2_12*s12*w1*w1 - gb2L2_2*s2;
+  const det = M11*M22 - M12*M12;
+  return [w1, w2,
+    ( b1*M22 - M12*b2)/det,
+    (M11*b2 -  M12*b1)/det];
+}
+
+// ---------- RK4 (size-agnostic) ----------
+function rk4(y, deriv) {
+  const n = y.length;
+  const k1 = deriv(y);
+  const y2 = new Array(n); for (let i=0;i<n;i++) y2[i] = y[i] + 0.5*dt*k1[i];
+  const k2 = deriv(y2);
+  const y3 = new Array(n); for (let i=0;i<n;i++) y3[i] = y[i] + 0.5*dt*k2[i];
+  const k3 = deriv(y3);
+  const y4 = new Array(n); for (let i=0;i<n;i++) y4[i] = y[i] +     dt*k3[i];
+  const k4 = deriv(y4);
+  const out = new Array(n);
+  for (let i=0;i<n;i++) out[i] = y[i] + dt/6 * (k1[i] + 2*k2[i] + 2*k3[i] + k4[i]);
+  return out;
+}
+
+// ============================================================================
+//  PHASES  --  asm code text for each mode
+// ============================================================================
+const phasesTriple = [
+  { id:'angles', name:'angles', meta:'fsincos × 6', src:
+`fld     tword [rbx]
+fsincos
+fstp    tword [s_arr + 10]    ; cos(θ1)
+fstp    tword [s_arr]         ; sin(θ1)
+; θ2, θ3 likewise
+
+fld     tword [rbx]
+fld     tword [rbx + 10]
+fsubp
+fsincos                       ; sin/cos of (θ1 − θ2)
+fstp    tword [sd_arr + 10]
+fstp    tword [sd_arr]
+; (θ1 − θ3), (θ2 − θ3) likewise`},
+  { id:'mass', name:'mass matrix M(θ)', meta:'3×3 symmetric', src:
+`fld     qword [a12]
+fld     tword [sd_arr + 10]   ; c12
+fmulp
+fstp    tword [M12_v]         ; M12 = α12 · cos(θ1 − θ2)
+
+fld     qword [a13]
+fld     tword [sd_arr + 30]
+fmulp
+fstp    tword [M13_v]
+
+fld     qword [a23]
+fld     tword [sd_arr + 50]
+fmulp
+fstp    tword [M23_v]
+; M11, M22, M33 constant`},
+  { id:'rhs', name:'rhs vector b(θ, ω)', meta:'centrifugal + gravity', src:
+`; b1 = −(α12·s12·ω2² + α13·s13·ω3² + g·β1·L1·sin θ1)
+fld     qword [a12]
+fld     tword [sd_arr]
+fmulp
+fld     tword [rbx + 40]      ; ω2
+fmul    st0, st0              ; ω2²
+fmulp
+
+fld     qword [a13]
+fld     tword [sd_arr + 20]
+fmulp
+fld     tword [rbx + 50]
+fmul    st0, st0
+fmulp
+faddp
+
+fld     qword [gb1L1]
+fld     tword [s_arr]
+fmulp
+faddp
+fchs
+fstp    tword [b1_v]`},
+  { id:'cramer', name:'cramer 3×3 solve', meta:'closed-form inverse', src:
+`; six shared 2×2 subdeterminants
+fld     qword [a22]
+fmul    qword [a33]
+fld     tword [M23_v]
+fmul    st0, st0
+fsubp
+fstp    tword [A_v]            ; A = M22·M33 − M23²
+; B, C, D, E, F similarly
+
+; α1 = (b1·A − M12·D + M13·E) / det
+fld     tword [b1_v]
+fld     tword [A_v]
+fmulp
+fld     tword [M12_v]
+fld     tword [D_v]
+fmulp
+fsubp
+fld     tword [M13_v]
+fld     tword [E_v]
+fmulp
+faddp
+fld     tword [det_v]
+fdivp
+fstp    tword [r12 + 30]`},
+  { id:'rk4', name:'rk4 combine', meta:'y ← y + dt/6·(k1+2k2+2k3+k4)', src:
+`%rep 6
+fld     tword [k2_arr + i*10]
+fld     tword [k3_arr + i*10]
+faddp
+fmul    qword [two_d]
+fld     tword [k1_arr + i*10]
+faddp
+fld     tword [k4_arr + i*10]
+faddp
+fmul    qword [dt_sixth]
+fld     tword [y_state + i*10]
+faddp
+fstp    tword [y_state + i*10]
+%endrep`}
+];
+
+const phasesDouble = [
+  { id:'angles', name:'angles', meta:'fsincos × 3', src:
+`fld     tword [rbx]
+fsincos
+fstp    tword [s_arr + 10]    ; cos(θ1)
+fstp    tword [s_arr]         ; sin(θ1)
+
+fld     tword [rbx + 10]
+fsincos
+fstp    tword [s_arr + 30]    ; cos(θ2)
+fstp    tword [s_arr + 20]    ; sin(θ2)
+
+fld     tword [rbx]
+fld     tword [rbx + 10]
+fsubp
+fsincos                       ; sin/cos of (θ1 − θ2)
+fstp    tword [sd_arr + 10]
+fstp    tword [sd_arr]`},
+  { id:'mass', name:'mass matrix M(θ)', meta:'2×2 symmetric', src:
+`; M11 = (m1+m2)·L1²   (constant: a2_11)
+; M22 = m2·L2²         (constant: a2_22)
+; M12 = m2·L1·L2 · cos(θ1 − θ2)
+fld     qword [m2L1L2]
+fld     tword [sd_arr + 10]   ; c12
+fmulp
+fstp    tword [M12_v]`},
+  { id:'rhs', name:'rhs vector b(θ, ω)', meta:'centrifugal + gravity', src:
+`; b1 = −α12·s12·ω2² − g·(m1+m2)·L1·sin θ1
+fld     qword [m2L1L2]
+fld     tword [sd_arr]
+fmulp
+fld     tword [rbx + 30]      ; ω2
+fmul    st0, st0
+fmulp
+
+fld     qword [gM1M2L1]
+fld     tword [s_arr]
+fmulp
+faddp
+fchs
+fstp    tword [b1_v]
+
+; b2 = +α12·s12·ω1² − g·m2·L2·sin θ2  (similar)`},
+  { id:'cramer', name:'cramer 2×2 solve', meta:'one divide pair', src:
+`; det = M11·M22 − M12²
+fld     qword [a2_11]
+fmul    qword [a2_22]
+fld     tword [M12_v]
+fmul    st0, st0
+fsubp
+fstp    tword [det_v]
+
+; α1 = (b1·M22 − M12·b2) / det
+fld     tword [b1_v]
+fmul    qword [a2_22]
+fld     tword [M12_v]
+fld     tword [b2_v]
+fmulp
+fsubp
+fld     tword [det_v]
+fdivp
+fstp    tword [r12 + 20]
+
+; α2 = (M11·b2 − M12·b1) / det   (similar)`},
+  { id:'rk4', name:'rk4 combine', meta:'y ← y + dt/6·(k1+2k2+2k3+k4)', src:
+`%rep 4
+fld     tword [k2_arr + i*10]
+fld     tword [k3_arr + i*10]
+faddp
+fmul    qword [two_d]
+fld     tword [k1_arr + i*10]
+faddp
+fld     tword [k4_arr + i*10]
+faddp
+fmul    qword [dt_sixth]
+fld     tword [y_state + i*10]
+faddp
+fstp    tword [y_state + i*10]
+%endrep`}
+];
+
+function paint(src) {
+  return src.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/(;[^\n]*)/g, '<span class="com">$1</span>')
+    .replace(/\b(fld|fstp|fst|fsincos|fcos|fsin|fmulp|fmul|faddp|fadd|fsubp|fsub|fdivp|fdiv|fchs|tword|qword|st0|%rep|%endrep)\b/g, '<span class="kw">$1</span>');
+}
+
+// ============================================================================
+//  STATE
+// ============================================================================
+let mode = 'triple';           // 'triple' | 'double'
+let y, phases, deriv, L_arr;
+let step = 0;
+let trail = [];
+let phaseIdx = 0;
+let lastSwitch = 0;
+
+function loadMode(m) {
+  mode = m;
+  if (m === 'triple') {
+    y = [Math.PI/2, Math.PI/2, Math.PI/2, 0, 0, 0];
+    phases = phasesTriple; deriv = deriv3; L_arr = L3;
+  } else {
+    y = [Math.PI/2, Math.PI/2, 0, 0];
+    phases = phasesDouble; deriv = deriv2; L_arr = L2;
+  }
+  step = 0; trail = [];
+  buildPhases();
+  setPhase(0);
+  document.querySelectorAll('.toggle button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+}
+
+function buildPhases() {
+  const root = document.getElementById('plist');
+  root.innerHTML = phases.map((p, i) => `
+    <div class="prow" data-i="${i}">
+      <span class="num">${String(i+1).padStart(2,'0')}</span>
+      <span class="nm">${p.name}</span>
+      <span class="meta">${p.meta}</span>
+    </div>
+  `).join('');
+  root.querySelectorAll('.prow').forEach(el => {
+    el.addEventListener('click', () => {
+      phaseIdx = parseInt(el.dataset.i);
+      lastSwitch = performance.now() + 4000; // pin 4s
+      setPhase(phaseIdx);
+    });
+  });
+}
+
+function setPhase(i) {
+  const root = document.getElementById('plist');
+  root.querySelectorAll('.prow').forEach((el, j) => el.classList.toggle('on', j === i));
+  document.getElementById('cc').textContent = `phase ${i+1} / ${phases.length} · ${phases[i].name}`;
+  document.getElementById('acc-name').textContent = phases[i].name;
+  document.getElementById('acc-meta').textContent = phases[i].meta;
+  document.getElementById('acc-code').innerHTML = paint(phases[i].src);
+}
+
+// ============================================================================
+//  RENDER
+// ============================================================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+function fit() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)) {
+    canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  return { w, h };
+}
+function draw() {
+  const { w, h } = fit();
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fillRect(0, 0, w, h);
+  const px = w/2, py = h*0.22;
+  const totalReach = L_arr.reduce((s,v)=>s+v,0);
+  const scale = Math.min(w, h) / (totalReach * 2.3 + 1);
+
+  const pts = [[px, py]];
+  let cx = px, cy = py;
+  for (let i = 0; i < L_arr.length; i++) {
+    cx += L_arr[i] * Math.sin(y[i]) * scale;
+    cy += L_arr[i] * Math.cos(y[i]) * scale;
+    pts.push([cx, cy]);
+  }
+
+  // trail of the bottom bob
+  trail.push([pts[pts.length-1][0], pts[pts.length-1][1]]);
+  if (trail.length > 1400) trail.shift();
+  for (let i = 1; i < trail.length; i++) {
+    const t = i / trail.length;
+    ctx.strokeStyle = `rgba(52,211,153,${0.04 + t*0.45})`;
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(trail[i-1][0], trail[i-1][1]);
+    ctx.lineTo(trail[i][0],   trail[i][1]);
+    ctx.stroke();
+  }
+
+  // rods
+  ctx.strokeStyle = 'rgba(229,226,225,0.65)';
+  ctx.lineWidth = 1.25;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+
+  // bobs (pivot, then each bob; last one is bigger and green)
+  const bobStyles = pts.length === 3
+    ? [["#e5e2e1",3],["#c4c7c8",6],["#34d399",8]]
+    : [["#e5e2e1",3],["#c4c7c8",5],["#a3a3a3",6],["#34d399",8]];
+  for (let i = 0; i < pts.length; i++) {
+    const [c, r] = bobStyles[i] || ["#e5e2e1", 4];
+    ctx.fillStyle = c;
+    ctx.beginPath(); ctx.arc(pts[i][0], pts[i][1], r, 0, 2*Math.PI); ctx.fill();
+  }
+}
+
+// ============================================================================
+//  LOOP
+// ============================================================================
+function loop(ts) {
+  for (let i = 0; i < 80; i++) { y = rk4(y, deriv); step++; }
+  if (ts - lastSwitch > 1500) {
+    lastSwitch = ts;
+    phaseIdx = (phaseIdx + 1) % phases.length;
+    setPhase(phaseIdx);
+  }
+  draw();
+  document.getElementById('st').textContent = step.toLocaleString();
+  document.getElementById('tm').textContent = (step*dt).toFixed(3);
+  requestAnimationFrame(loop);
+}
+
+// ============================================================================
+//  WIRE UP
+// ============================================================================
+document.querySelectorAll('.toggle button').forEach(b => {
+  b.addEventListener('click', () => loadMode(b.dataset.mode));
+});
+
+loadMode('triple');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
