@@ -53,6 +53,19 @@
   main { max-width: 1280px; margin: 0 auto; padding: 120px 28px 96px;
     position: relative; z-index: 1; }
 
+  .claim {
+    display: inline-block;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(52,211,153,0.4);
+    background: rgba(52,211,153,0.05);
+    padding: 6px 12px;
+    margin: 0 0 18px;
+  }
+  .claim::before { content: "▸ "; opacity: 0.7; }
   .name { font-family: "Manrope", sans-serif; font-weight: 200;
     font-size: clamp(48px, 7vw, 80px); line-height: 0.95; letter-spacing: -0.04em;
     color: #fff; margin: 0 0 4px; }
@@ -309,6 +322,7 @@
     .spec .k { margin-bottom: 0; }
     pre.terminal-block { font-size: 0.6rem; line-height: 1.6; padding: 14px 14px; }
     .tag { font-size: 0.5rem; line-height: 1.8; }
+    .claim { font-size: 0.5rem; letter-spacing: 0.2em; padding: 5px 10px; margin-bottom: 14px; }
     .init-panel { gap: 10px; padding: 10px 12px; font-size: 0.5rem; }
     .init-panel label.sl { flex-basis: 100%; min-width: 0; }
     .init-panel .init-label { flex-basis: 100%; }
@@ -334,6 +348,7 @@
 
 <main>
 
+  <div class="claim">first triple pendulum in any assembly language</div>
   <h1 class="name">triple_pendulum<span class="dot">.</span></h1>
   <p class="tag"><b>asm ▸</b> js port of the real nasm binary &middot; <a href="/how" style="color: var(--muted); border-bottom: 1px dotted var(--dim2);">why &amp; how ↗</a></p>
 
