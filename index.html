@@ -85,6 +85,19 @@
     line-height: 1.9;
   }
   .canvas-stats b { color: var(--accent); font-weight: 400; }
+  .trace-btn {
+    position: absolute; bottom: 20px; left: 20px;
+    background: rgba(5,5,5,0.85);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.55rem; letter-spacing: 0.22em; text-transform: uppercase;
+    padding: 8px 12px; cursor: none !important; z-index: 10;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+  .trace-btn:hover { color: #fff; border-color: var(--muted); }
+  .trace-btn.on { color: var(--accent); border-color: var(--accent);
+    background: rgba(52,211,153,0.06); }
 
   /* side panel */
   .side {
@@ -213,6 +226,30 @@
   @media (hover: none) and (pointer: coarse) {
     body, body * { cursor: auto !important; }
     #cursor { display: none; }
+    .trace-btn { cursor: pointer !important; }
+    .toggle button { cursor: pointer !important; }
+    .prow { cursor: pointer !important; }
+  }
+
+  /* mobile */
+  @media (max-width: 760px) {
+    main { padding: 100px 18px 64px; }
+    .topbar { padding: 1rem 1rem; font-size: 0.55rem; letter-spacing: 0.18em; }
+    .topbar .right a { margin-left: 0.9rem; }
+    .name { font-size: 38px; }
+    .lede { font-size: 0.88rem; margin-bottom: 28px; }
+    canvas { height: 60vw; min-height: 280px; max-height: 440px; }
+    .side { height: auto; }
+    .live-code { min-height: 280px; }
+    pre.code { font-size: 0.66rem; line-height: 1.6; }
+    .canvas-stats { top: 12px; left: 12px; }
+    .canvas-corner { top: 12px; right: 12px; }
+    .trace-btn { bottom: 12px; left: 12px; padding: 6px 10px; font-size: 0.5rem; }
+    table.cmp { font-size: 0.6rem; }
+    table.cmp th, table.cmp td { padding: 8px 4px; }
+    .spec .row { grid-template-columns: 1fr; gap: 4px; }
+    .spec .k { margin-bottom: 0; }
+    pre.terminal-block { font-size: 0.6rem; line-height: 1.6; padding: 14px 14px; }
   }
 </style>
 </head>
@@ -246,6 +283,7 @@
         <div>t <b id="tm">0.000</b> s</div>
       </div>
       <div class="canvas-corner" id="cc">phase 1 / 5</div>
+      <button class="trace-btn" id="trace-btn">trace ◯</button>
     </div>
 
     <div class="side">
@@ -589,9 +627,10 @@ function paint(src) {
 let mode = 'triple';           // 'triple' | 'double'
 let y, phases, deriv, L_arr;
 let step = 0;
-let trail = [];
+let trails = [[], [], []];     // per-bob position history (physics units)
 let phaseIdx = 0;
 let lastSwitch = 0;
+let traceForever = false;
 
 function loadMode(m) {
   mode = m;
@@ -602,10 +641,20 @@ function loadMode(m) {
     y = [Math.PI/2, Math.PI/2, 0, 0];
     phases = phasesDouble; deriv = deriv2; L_arr = L2;
   }
-  step = 0; trail = [];
+  step = 0;
+  trails = L_arr.map(() => []);
   buildPhases();
   setPhase(0);
   document.querySelectorAll('.toggle button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+}
+
+function setTrace(on) {
+  traceForever = on;
+  const btn = document.getElementById('trace-btn');
+  btn.textContent = on ? 'trace ●' : 'trace ◯';
+  btn.classList.toggle('on', on);
+  // when entering trace mode, reset trails so the new run draws cleanly
+  if (on) trails = L_arr.map(() => []);
 }
 
 function buildPhases() {
@@ -649,22 +698,35 @@ function fit() {
   }
   return { w, h };
 }
+// per-bob colors. each bob's trail gets its own color so trace mode
+// shows three distinct attractor strands.
+//   triple: bob1 yellow, bob2 cyan, bob3 green
+//   double: bob1 cyan,   bob2 green
+const TRIPLE_RGB = [[255,212,94], [106,203,230], [52,211,153]];
+const DOUBLE_RGB = [[106,203,230], [52,211,153]];
+
+function bobColorsRGB() { return L_arr.length === 3 ? TRIPLE_RGB : DOUBLE_RGB; }
+
 // trail is stored in physics units (relative to pivot) so resize never
 // distorts it. each frame we recompute screen scale and project everything.
 function draw() {
   const { w, h } = fit();
-  // motion-blur background. clear fully if size changed since last frame.
+  // full clear if canvas size changed (avoids ghost pixels from old layout)
   if (w !== lastW || h !== lastH) {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
     lastW = w; lastH = h;
+  } else if (traceForever) {
+    // in trace mode we redraw the entire trail each frame, so just clear
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
   } else {
+    // motion blur for the regular fading trail
     ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, 0, w, h);
   }
   const px = w/2, py = h*0.22;
   const totalReach = L_arr.reduce((s,v)=>s+v,0);
   const scale = Math.min(w, h) / (totalReach * 2.3 + 1);
 
-  // bobs in physics units, then project
+  // bobs in physics units, then project to screen
   const physPts = [[0, 0]];
   let cx = 0, cy = 0;
   for (let i = 0; i < L_arr.length; i++) {
@@ -674,19 +736,44 @@ function draw() {
   }
   const pts = physPts.map(([x, y_]) => [px + x*scale, py + y_*scale]);
 
-  // append bottom bob's physics-unit position to trail
-  trail.push([physPts[physPts.length-1][0], physPts[physPts.length-1][1]]);
-  if (trail.length > 1400) trail.shift();
+  // append current bob positions to per-bob trail. cap length in normal mode.
+  const numBobs = L_arr.length;
+  for (let b = 0; b < numBobs; b++) {
+    trails[b].push([physPts[b+1][0], physPts[b+1][1]]);
+  }
+  if (!traceForever) {
+    for (let b = 0; b < numBobs; b++) {
+      while (trails[b].length > 1400) trails[b].shift();
+    }
+  }
 
-  // draw trail (project each point with current scale)
-  for (let i = 1; i < trail.length; i++) {
-    const t = i / trail.length;
-    ctx.strokeStyle = `rgba(52,211,153,${0.04 + t*0.45})`;
-    ctx.lineWidth = 1.1;
-    ctx.beginPath();
-    ctx.moveTo(px + trail[i-1][0]*scale, py + trail[i-1][1]*scale);
-    ctx.lineTo(px + trail[i][0]*scale,   py + trail[i][1]*scale);
-    ctx.stroke();
+  // draw trails. in trace mode, one stroked path per bob (cheap, can grow
+  // indefinitely). in fade mode, per-segment alpha (slower but capped).
+  const colors = bobColorsRGB();
+  for (let b = 0; b < numBobs; b++) {
+    const t = trails[b]; if (t.length < 2) continue;
+    const [r, g, bl] = colors[b];
+    if (traceForever) {
+      ctx.strokeStyle = `rgba(${r},${g},${bl},0.55)`;
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(px + t[0][0]*scale, py + t[0][1]*scale);
+      for (let i = 1; i < t.length; i++) {
+        ctx.lineTo(px + t[i][0]*scale, py + t[i][1]*scale);
+      }
+      ctx.stroke();
+    } else {
+      ctx.lineWidth = 1.1;
+      for (let i = 1; i < t.length; i++) {
+        const f = i / t.length;
+        const alpha = 0.04 + f*0.45;
+        ctx.strokeStyle = `rgba(${r},${g},${bl},${alpha})`;
+        ctx.beginPath();
+        ctx.moveTo(px + t[i-1][0]*scale, py + t[i-1][1]*scale);
+        ctx.lineTo(px + t[i  ][0]*scale, py + t[i  ][1]*scale);
+        ctx.stroke();
+      }
+    }
   }
 
   // rods
@@ -697,14 +784,15 @@ function draw() {
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
   ctx.stroke();
 
-  // bobs (pivot, then each bob; last is bigger and green)
-  const bobStyles = pts.length === 3
-    ? [["#e5e2e1",3],["#c4c7c8",6],["#34d399",8]]
-    : [["#e5e2e1",3],["#c4c7c8",5],["#a3a3a3",6],["#34d399",8]];
-  for (let i = 0; i < pts.length; i++) {
-    const [c, r] = bobStyles[i] || ["#e5e2e1", 4];
-    ctx.fillStyle = c;
-    ctx.beginPath(); ctx.arc(pts[i][0], pts[i][1], r, 0, 2*Math.PI); ctx.fill();
+  // bobs (pivot white, then each bob in its trail color, growing radius)
+  ctx.fillStyle = '#e5e2e1';
+  ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], 3, 0, 2*Math.PI); ctx.fill();
+  for (let b = 0; b < numBobs; b++) {
+    const [r, g, bl] = colors[b];
+    ctx.fillStyle = `rgb(${r},${g},${bl})`;
+    ctx.beginPath();
+    ctx.arc(pts[b+1][0], pts[b+1][1], 5 + b, 0, 2*Math.PI);
+    ctx.fill();
   }
 }
 let lastW = 0, lastH = 0;
@@ -731,6 +819,7 @@ function loop(ts) {
 document.querySelectorAll('.toggle button').forEach(b => {
   b.addEventListener('click', () => loadMode(b.dataset.mode));
 });
+document.getElementById('trace-btn').addEventListener('click', () => setTrace(!traceForever));
 
 loadMode('triple');
 requestAnimationFrame(loop);
