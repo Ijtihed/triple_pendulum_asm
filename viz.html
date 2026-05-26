@@ -31,10 +31,13 @@
     transform: translate(-50%, -50%); mix-blend-mode: difference;
     transition: transform 0.1s ease; }
 
-  .topbar { position: fixed; top: 1.25rem; left: 1.5rem; right: 1.5rem;
+  .topbar { position: fixed; top: 0; left: 0; right: 0;
+    padding: 1.25rem 1.5rem;
     display: flex; justify-content: space-between; align-items: center;
     z-index: 50; font-family: "JetBrains Mono", monospace;
-    font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute2); }
+    font-size: 0.6rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute2);
+    background: linear-gradient(to bottom, #000 0%, #000 60%, rgba(0,0,0,0.6) 100%);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .topbar a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
   .topbar a:hover { color: #fff; }
   .topbar .right a { margin-left: 1.5rem; }
@@ -42,7 +45,8 @@
     transition: transform 0.2s, color 0.2s; }
   .topbar .right a:hover .arrow { color: #fff; transform: translate(2px, -2px); }
 
-  main { max-width: 1280px; margin: 0 auto; padding: 88px 28px 96px; }
+  main { max-width: 1280px; margin: 0 auto; padding: 120px 28px 96px;
+    position: relative; z-index: 1; }
 
   .name { font-family: "Manrope", sans-serif; font-weight: 200;
     font-size: clamp(48px, 7vw, 80px); line-height: 0.95; letter-spacing: -0.04em;
@@ -176,6 +180,16 @@
     line-height: 1.55; }
   .spec .v code { font-family: "JetBrains Mono", monospace; font-size: 0.78rem; color: var(--fg); }
 
+  /* terminal block */
+  pre.terminal-block {
+    margin: 0 0 8px; padding: 18px 20px;
+    background: #050505; border: 1px solid var(--line);
+    font-family: "JetBrains Mono", monospace; font-size: 0.72rem;
+    line-height: 1.7; color: #b8b8b8; overflow: auto; white-space: pre;
+  }
+  pre.terminal-block .acc { color: var(--accent); }
+  pre.terminal-block .muted { color: var(--dim); font-style: italic; }
+
   /* comparison table */
   table.cmp { width: 100%; border-collapse: collapse;
     font-family: "JetBrains Mono", monospace; font-size: 0.72rem; }
@@ -269,6 +283,25 @@
       <tr><td>200 000</td><td>−5.8e-12</td><td>+1.2e-11</td><td class="win">−5.1e-13</td></tr>
     </tbody>
   </table>
+
+  <div class="sh">live from the real asm</div>
+  <p style="font-size: 0.78rem; color: var(--mute2); margin: 0 0 14px; line-height: 1.6;">
+    the browser visual above is a faithful js twin. the actual nasm binary runs in a terminal and prints its own energy diagnostic. captured from <code style="font-family:JetBrains Mono,monospace;color:var(--fg);">./triple_pendulum</code> on linux x86-64:
+  </p>
+  <pre class="terminal-block">$ <span class="acc">./triple_pendulum</span>
+                                       +
+                                       o
+                                       o
+                                       O
+triple pendulum (asm) | E=  -0.0000  dE=-7.225e-18  step=160
+triple pendulum (asm) | E=  -0.0000  dE=-4.490e-17  step=4960
+triple pendulum (asm) | E=   0.0000  dE=+1.620e-15  step=9760
+triple pendulum (asm) | E=   0.0000  dE=+1.124e-14  step=14560
+triple pendulum (asm) | E=   0.0000  dE=+4.320e-15  step=19360
+triple pendulum (asm) | E=   0.0000  dE=+3.244e-15  step=24160
+triple pendulum (asm) | E=   0.0000  dE=+3.834e-15  step=28960
+triple pendulum (asm) | E=   0.0000  dE=+4.045e-15  step=33760
+<span class="muted">(captured live from nasm + gcc + wsl ubuntu 22.04)</span></pre>
 
   <div class="sh">what&rsquo;s inside</div>
   <div class="spec">
@@ -616,32 +649,43 @@ function fit() {
   }
   return { w, h };
 }
+// trail is stored in PHYSICS UNITS (relative to pivot), so resize never
+// distorts it. each frame we recompute screen scale and project trail + bobs.
 function draw() {
   const { w, h } = fit();
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
-  ctx.fillRect(0, 0, w, h);
+  // motion-blur background. clear fully if size changed since last frame.
+  if (w !== lastW || h !== lastH) {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    lastW = w; lastH = h;
+  } else {
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, 0, w, h);
+  }
   const px = w/2, py = h*0.22;
   const totalReach = L_arr.reduce((s,v)=>s+v,0);
   const scale = Math.min(w, h) / (totalReach * 2.3 + 1);
 
-  const pts = [[px, py]];
-  let cx = px, cy = py;
+  // bobs in physics units, then project
+  const physPts = [[0, 0]];
+  let cx = 0, cy = 0;
   for (let i = 0; i < L_arr.length; i++) {
-    cx += L_arr[i] * Math.sin(y[i]) * scale;
-    cy += L_arr[i] * Math.cos(y[i]) * scale;
-    pts.push([cx, cy]);
+    cx += L_arr[i] * Math.sin(y[i]);
+    cy += L_arr[i] * Math.cos(y[i]);
+    physPts.push([cx, cy]);
   }
+  const pts = physPts.map(([x, y_]) => [px + x*scale, py + y_*scale]);
 
-  // trail of the bottom bob
-  trail.push([pts[pts.length-1][0], pts[pts.length-1][1]]);
+  // append bottom bob's physics-unit position to trail
+  trail.push([physPts[physPts.length-1][0], physPts[physPts.length-1][1]]);
   if (trail.length > 1400) trail.shift();
+
+  // draw trail (project each point with current scale)
   for (let i = 1; i < trail.length; i++) {
     const t = i / trail.length;
     ctx.strokeStyle = `rgba(52,211,153,${0.04 + t*0.45})`;
     ctx.lineWidth = 1.1;
     ctx.beginPath();
-    ctx.moveTo(trail[i-1][0], trail[i-1][1]);
-    ctx.lineTo(trail[i][0],   trail[i][1]);
+    ctx.moveTo(px + trail[i-1][0]*scale, py + trail[i-1][1]*scale);
+    ctx.lineTo(px + trail[i][0]*scale,   py + trail[i][1]*scale);
     ctx.stroke();
   }
 
@@ -653,7 +697,7 @@ function draw() {
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
   ctx.stroke();
 
-  // bobs (pivot, then each bob; last one is bigger and green)
+  // bobs (pivot, then each bob; last is bigger and green)
   const bobStyles = pts.length === 3
     ? [["#e5e2e1",3],["#c4c7c8",6],["#34d399",8]]
     : [["#e5e2e1",3],["#c4c7c8",5],["#a3a3a3",6],["#34d399",8]];
@@ -663,6 +707,7 @@ function draw() {
     ctx.beginPath(); ctx.arc(pts[i][0], pts[i][1], r, 0, 2*Math.PI); ctx.fill();
   }
 }
+let lastW = 0, lastH = 0;
 
 // ============================================================================
 //  LOOP
