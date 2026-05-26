@@ -708,15 +708,20 @@ function onSliderInput(i, val) {
   y[i] = parseFloat(val);
   const n = L_arr.length;
   for (let k = 0; k < n; k++) y[n + k] = 0;
-  step = 0;
-  trails = L_arr.map(() => []);
+  // in trace mode, keep the canvas painted; only reset is allowed to clear
+  if (!traceForever) {
+    step = 0;
+    trails = L_arr.map(() => []);
+  }
 }
 
 function kick() {
   const n = L_arr.length;
   for (let i = 0; i < n; i++) y[n + i] = (Math.random() * 2 - 1) * 4;
-  step = 0;
-  trails = L_arr.map(() => []);
+  if (!traceForever) {
+    step = 0;
+    trails = L_arr.map(() => []);
+  }
 }
 
 // ----------------------------------------------------------------------------
