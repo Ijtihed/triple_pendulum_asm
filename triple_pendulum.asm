@@ -1,22 +1,16 @@
 ; ============================================================================
-;  triple_pendulum.asm  --  physically accurate triple pendulum in x86-64 asm
+;  triple_pendulum.asm
 ;
-;  Highlights:
-;   * Lagrangian mechanics for three point masses on rigid rods.
-;     M(theta) * theta_ddot = b(theta, omega)   (3x3 dense system each step)
-;   * Cramer's rule analytical 3x3 solve.  No LU, no iterative refinement.
-;   * Classical RK4 integrator at dt = 1e-4.
-;     Per-step truncation O(dt^5) ~ 1e-20.
-;   * State and *all* RK4 / Cramer scratch held as x87 80-bit extended precision
-;     (tword).  Every memory round-trip preserves the FPU register precision;
-;     no 80 -> 64 rounding inside the integrator.  No C / Python / JS / Rust
-;     implementation does this -- they round to 64 bits on every assignment.
-;   * fsincos for every angle / angle-difference: both transcendentals in one
-;     instruction, 80-bit accurate, table-free.
+;  lagrangian mechanics for three point masses on rigid rods.
+;     M(theta) * theta_ddot = b(theta, omega)        (3x3 dense system)
+;  cramer's rule for the 3x3 solve.
+;  classical rk4 at dt = 1e-4.
+;  state and cramer scratch held at x87 80-bit (tword) extended precision.
+;  fsincos for every angle and angle-difference.
 ;
-;  Build:    nasm -felf64 triple_pendulum.asm -o triple_pendulum.o
-;            gcc  -no-pie  triple_pendulum.o   -o triple_pendulum -lm
-;  Run:      ./triple_pendulum                 (Ctrl-C to quit)
+;  build:  nasm -felf64 triple_pendulum.asm -o triple_pendulum.o
+;          gcc  -no-pie  triple_pendulum.o   -o triple_pendulum -lm
+;  run:    ./triple_pendulum                          (ctrl-c to quit)
 ; ============================================================================
 
 default rel
@@ -29,14 +23,14 @@ extern  usleep
 section .data
 ; ----------------------------------------------------------------------------
 g_const:    dq 9.81
-; RK4 timestep.  dt = 1e-4 puts per-step truncation at the level of double
-; roundoff.  At 200000 steps the energy drift stays around 1e-12.
+; rk4 timestep. dt = 1e-4 puts per-step truncation at the level of double
+; roundoff. at 200000 steps the energy drift stays around 1e-12.
 dt_phys:    dq 0.0001
 dt_half:    dq 0.00005
 dt_sixth:   dq 0.0000166666666666666666667
 two_d:      dq 2.0
 
-; Precomputed alpha_jk = (sum m_i for i>=max(j,k)) * L_j * L_k    (m_i = 1)
+; precomputed alpha_jk = (sum m_i for i>=max(j,k)) * L_j * L_k    (m_i = 1)
 a11:        dq 48.0
 a12:        dq 28.0
 a13:        dq 12.0
@@ -54,34 +48,29 @@ L3_d:       dq 3.0
 piv_x_d:    dq 40.0
 piv_y_d:    dq 4.0
 
-; Initial conditions held as 80-bit literals so the FPU loads them at full
+; initial conditions held as 80-bit literals so the fpu loads them at full
 ; extended precision rather than rounding from a 64-bit double.
 init_th1:   dt 1.5707963267948966192   ; pi/2
 init_th2:   dt 1.5707963267948966192
 init_th3:   dt 1.5707963267948966192
 
-; ANSI / printf strings
+; ansi / printf strings
 fmt_clr:    db 27,"[2J",27,"[H",0
 fmt_pos:    db 27,"[%d;%dH%c",0
-fmt_foot:   db 27,"[23;1H",27,"[Ktriple pendulum (asm) | E=%9.4f  dE=%+10.3e  step=%lld",10
-            db 27,"[K(Lagrangian + RK4 @ dt=1e-4, 80-bit x87 state)  -  Ctrl-C to quit",10,0
+fmt_foot:   db 27,"[23;1H",27,"[Ktriple_pendulum.asm | e=%9.4f  de=%+10.3e  step=%lld",10
+            db 27,"[K(lagrangian + rk4 @ dt=1e-4, 80-bit x87 state)  ctrl-c to quit",10,0
 
 ; ----------------------------------------------------------------------------
 section .bss
 ; ----------------------------------------------------------------------------
-;  Storage convention
-;  ------------------
-;  Everything that the integrator writes back to memory uses 80-bit x87
-;  extended precision (tword, 10 bytes).  The x87 FPU does all arithmetic at
-;  this precision in its registers; by storing 80-bit instead of rounding to
-;  qword (64-bit) we preserve every memory round-trip.  Constants (alpha,
-;  gravity, dt) stay 64-bit because their literal precision is no better
-;  than that anyway.
+; storage: 80-bit tword for everything the integrator writes back to memory.
+; the fpu does arithmetic at 80-bit in registers, so storing 80-bit means no
+; rounding on memory round-trips. constants (alpha, gravity, dt) stay 64-bit
+; because their literal precision is no better than that.
 ;
-;  NOTE on x87 quirk:  FLD / FSTP support m80fp, but FADD / FSUB / FMUL /
-;  FDIV only support m32fp and m64fp.  So every 80-bit operand has to be
-;  brought to a register with FLD TWORD first, then combined register-to-
-;  register with the popping variant (FADDP / FSUBP / FMULP / FDIVP).
+; x87 quirk: fld / fstp accept m80fp. fadd / fsub / fmul / fdiv only accept
+; m32fp and m64fp. so every 80-bit operand has to come into a register via
+; fld tword first, then combine with faddp / fsubp / fmulp / fdivp.
 
 y_state:    rest 6        ; [theta1 theta2 theta3 omega1 omega2 omega3]
 y_tmp:      rest 6        ; RK4 staging
@@ -114,9 +103,9 @@ section .text
 
 ; ============================================================================
 ;  compute_deriv(rdi = y_ptr, rsi = dy_ptr)
-;  Inputs:   y_ptr -> 6 * 10 bytes  = [theta1..theta3 omega1..omega3]  (80-bit)
-;  Outputs:  dy_ptr <- [omega1 omega2 omega3 alpha1 alpha2 alpha3]
-;  Builds M and b from the Lagrangian, solves M*alpha = b via Cramer.
+;  in:   y_ptr -> 6 * 10 bytes = [theta1..theta3 omega1..omega3]  (80-bit)
+;  out:  dy_ptr <- [omega1 omega2 omega3 alpha1 alpha2 alpha3]
+;  builds M and b from the lagrangian, solves M*alpha = b via cramer.
 ; ============================================================================
 compute_deriv:
         push    rbx
@@ -380,7 +369,7 @@ compute_deriv:
         ret
 
 ; ============================================================================
-;  AXPY macro: for i=0..5,  y_tmp[i] = y_state[i] + scalar * src[i]
+;  axpy macro: for i=0..5,  y_tmp[i] = y_state[i] + scalar * src[i]
 ;       %1 = 80-bit source array,  %2 = 64-bit scalar
 ; ============================================================================
 %macro AXPY_TO_YTMP 2
@@ -396,7 +385,7 @@ compute_deriv:
 %endmacro
 
 ; ============================================================================
-;  rk4_step():  classical Runge-Kutta 4 step on y_state.
+;  rk4_step:  one classical rk4 step on y_state.
 ;    k1 = f(y)
 ;    k2 = f(y + dt/2 k1)
 ;    k3 = f(y + dt/2 k2)
@@ -449,7 +438,7 @@ rk4_step:
         ret
 
 ; ============================================================================
-;  compute_energy(): returns total mechanical E = T + V as a double in xmm0.
+;  compute_energy: returns total mechanical E = T + V as a double in xmm0.
 ; ============================================================================
 compute_energy:
         push    rbp
@@ -474,7 +463,7 @@ compute_energy:
         fcos
         fstp    tword [sd_arr + 50]
 
-        ; T = 0.5*( a11 w1^2 + a22 w2^2 + a33 w3^2
+        ; t = 0.5*( a11 w1^2 + a22 w2^2 + a33 w3^2
         ;          + 2 a12 c12 w1 w2 + 2 a13 c13 w1 w3 + 2 a23 c23 w2 w3 )
         fld     qword [a11]
         fld     tword [y_state + 30]
@@ -531,7 +520,7 @@ compute_energy:
         faddp
         fdivp                              ; * 0.5
 
-        ; V = -(gb1L1 cos(t1) + gb2L2 cos(t2) + gb3L3 cos(t3))
+        ; v = -(gb1L1 cos(t1) + gb2L2 cos(t2) + gb3L3 cos(t3))
         fld     tword [y_state]
         fcos
         fmul    qword [gb1L1]
@@ -544,9 +533,9 @@ compute_energy:
         fmul    qword [gb3L3]
         faddp
         fchs
-        faddp                              ; E = T + V on FPU top
+        faddp                              ; e = t + v on fpu top
 
-        ; Round to double for printf return.
+        ; round to double for printf return.
         sub     rsp, 16
         fstp    qword [rsp]
         movsd   xmm0, [rsp]
@@ -569,8 +558,8 @@ draw_char_at:
         ret
 
 ; ============================================================================
-;  render():  forward kinematics in 64-bit (for terminal coords) + ANSI escape
-;             sequence output + energy footer.
+;  render:  forward kinematics in 64-bit (for terminal coords), then ansi
+;           escape sequences for the three bobs and the energy footer.
 ; ============================================================================
 render:
         push    rbp
@@ -583,7 +572,7 @@ render:
 
         ; bob 1
         fld     tword [y_state]
-        fsincos                            ; cos, sin on FPU
+        fsincos                            ; cos, sin on fpu
         fld     qword [L1_d]
         fmul    st0, st2                   ; L1*sin
         fadd    qword [piv_x_d]
@@ -663,15 +652,15 @@ render:
         mov     ecx, 'O'
         call    draw_char_at
 
-        ; footer: E and dE
-        call    compute_energy             ; xmm0 = E (double)
+        ; footer: e and de
+        call    compute_energy             ; xmm0 = e (double)
         movsd   xmm1, xmm0
         fld     tword [E_init]
         sub     rsp, 16
         fstp    qword [rsp]
         movsd   xmm2, [rsp]
         add     rsp, 16
-        subsd   xmm1, xmm2                 ; dE = E - E_init
+        subsd   xmm1, xmm2                 ; de = e - e_init
 
         mov     rsi, [step_cnt]
         lea     rdi, [fmt_foot]
@@ -685,7 +674,7 @@ render:
         ret
 
 ; ============================================================================
-;  main()
+;  main
 ; ============================================================================
 main:
         push    rbp
@@ -708,7 +697,7 @@ main:
         xor     rax, rax
         mov     [step_cnt], rax
 
-        call    compute_energy             ; xmm0 = initial E
+        call    compute_energy             ; xmm0 = initial e
         sub     rsp, 16
         movsd   [rsp], xmm0
         fld     qword [rsp]
@@ -716,7 +705,7 @@ main:
         add     rsp, 16
 
 .loop:
-        ; advance physics: 160 RK4 steps  ->  16 ms simulated  (dt = 1e-4)
+        ; 160 rk4 steps per frame  =  16 ms simulated  (dt = 1e-4)
         mov     r12d, 160
 .physloop:
         call    rk4_step

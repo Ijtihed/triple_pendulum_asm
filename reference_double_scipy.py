@@ -1,4 +1,4 @@
-"""Double pendulum: scipy DOP853 (8th order, adaptive) gold-standard reference."""
+"""double pendulum, scipy DOP853 ground truth (rtol=1e-13, atol=1e-15)."""
 import math
 
 try:

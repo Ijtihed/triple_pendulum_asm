@@ -293,15 +293,15 @@
                                        o
                                        o
                                        O
-triple pendulum (asm) | E=  -0.0000  dE=-7.225e-18  step=160
-triple pendulum (asm) | E=  -0.0000  dE=-4.490e-17  step=4960
-triple pendulum (asm) | E=   0.0000  dE=+1.620e-15  step=9760
-triple pendulum (asm) | E=   0.0000  dE=+1.124e-14  step=14560
-triple pendulum (asm) | E=   0.0000  dE=+4.320e-15  step=19360
-triple pendulum (asm) | E=   0.0000  dE=+3.244e-15  step=24160
-triple pendulum (asm) | E=   0.0000  dE=+3.834e-15  step=28960
-triple pendulum (asm) | E=   0.0000  dE=+4.045e-15  step=33760
-<span class="muted">(captured live from nasm + gcc + wsl ubuntu 22.04)</span></pre>
+triple_pendulum.asm | e=  -0.0000  de=-7.225e-18  step=160
+triple_pendulum.asm | e=  -0.0000  de=-4.490e-17  step=4960
+triple_pendulum.asm | e=   0.0000  de=+1.620e-15  step=9760
+triple_pendulum.asm | e=   0.0000  de=+1.124e-14  step=14560
+triple_pendulum.asm | e=   0.0000  de=+4.320e-15  step=19360
+triple_pendulum.asm | e=   0.0000  de=+3.244e-15  step=24160
+triple_pendulum.asm | e=   0.0000  de=+3.834e-15  step=28960
+triple_pendulum.asm | e=   0.0000  de=+4.045e-15  step=33760
+<span class="muted">(captured from nasm + gcc + wsl ubuntu 22.04)</span></pre>
 
   <div class="sh">what&rsquo;s inside</div>
   <div class="spec">
@@ -328,7 +328,7 @@ const cur = document.getElementById('cursor');
 addEventListener('mousemove', e => { cur.style.left = e.clientX + 'px'; cur.style.top = e.clientY + 'px'; });
 
 // ============================================================================
-//  PHYSICS  --  same equations as the asm, in 64-bit doubles
+//  physics. same equations as the asm, in 64-bit doubles.
 // ============================================================================
 const dt = 1e-4;
 const g = 9.81;
@@ -382,7 +382,7 @@ function deriv2(y) {
     (M11*b2 -  M12*b1)/det];
 }
 
-// ---------- RK4 (size-agnostic) ----------
+// ---------- rk4 (size-agnostic) ----------
 function rk4(y, deriv) {
   const n = y.length;
   const k1 = deriv(y);
@@ -398,7 +398,7 @@ function rk4(y, deriv) {
 }
 
 // ============================================================================
-//  PHASES  --  asm code text for each mode
+//  phases. asm code text for each mode.
 // ============================================================================
 const phasesTriple = [
   { id:'angles', name:'angles', meta:'fsincos × 6', src:
@@ -584,7 +584,7 @@ function paint(src) {
 }
 
 // ============================================================================
-//  STATE
+//  state
 // ============================================================================
 let mode = 'triple';           // 'triple' | 'double'
 let y, phases, deriv, L_arr;
@@ -636,7 +636,7 @@ function setPhase(i) {
 }
 
 // ============================================================================
-//  RENDER
+//  render
 // ============================================================================
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -649,8 +649,8 @@ function fit() {
   }
   return { w, h };
 }
-// trail is stored in PHYSICS UNITS (relative to pivot), so resize never
-// distorts it. each frame we recompute screen scale and project trail + bobs.
+// trail is stored in physics units (relative to pivot) so resize never
+// distorts it. each frame we recompute screen scale and project everything.
 function draw() {
   const { w, h } = fit();
   // motion-blur background. clear fully if size changed since last frame.
@@ -710,7 +710,7 @@ function draw() {
 let lastW = 0, lastH = 0;
 
 // ============================================================================
-//  LOOP
+//  loop
 // ============================================================================
 function loop(ts) {
   for (let i = 0; i < 80; i++) { y = rk4(y, deriv); step++; }
@@ -726,7 +726,7 @@ function loop(ts) {
 }
 
 // ============================================================================
-//  WIRE UP
+//  wire up
 // ============================================================================
 document.querySelectorAll('.toggle button').forEach(b => {
   b.addEventListener('click', () => loadMode(b.dataset.mode));

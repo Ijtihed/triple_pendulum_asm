@@ -1,13 +1,4 @@
-"""High-accuracy reference using scipy's 8th-order Dormand-Prince integrator
-(DOP853) with very tight tolerances.  Treats the asm/python RK4 results as
-estimates of this ground truth.
-
-The point of having a higher-order reference is that, at the same accuracy
-target, an 8th-order method makes thousands of times fewer steps than a
-4th-order one, so its accumulated arithmetic roundoff is much smaller.
-DOP853 at rtol=1e-13 atol=1e-15 is well-tested gold standard for chaotic
-multibody systems.
-"""
+"""triple pendulum, scipy DOP853 ground truth (rtol=1e-13, atol=1e-15)."""
 import math
 
 try:

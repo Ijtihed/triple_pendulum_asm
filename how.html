@@ -156,11 +156,10 @@
   <p class="tag"><b>asm ▸</b> derivation, solver, integrator, precision</p>
 
   <p class="lede">
-    a walk-through of the math, the solver, and the precision tricks that make
-    <em>triple_pendulum.asm</em> physically accurate enough to beat scipy at
-    long times. nothing here is novel. the lagrangian derivation is in every
-    classical-mechanics textbook. but assembling it all in one place, at the
-    level needed to write it in nasm, is its own thing.
+    walk-through of the math, the solver, and the precision tricks behind
+    <em>triple_pendulum.asm</em>. nothing here is novel. the lagrangian
+    derivation is in every classical-mechanics textbook. but assembling it
+    in one place at the level needed to write it in nasm is its own thing.
   </p>
 
   <div class="toc">
@@ -168,11 +167,11 @@
     <ol>
       <li><a href="#absence">the absence</a></li>
       <li><a href="#system">the system</a></li>
-      <li><a href="#lagrangian">lagrangian → equations of motion</a></li>
+      <li><a href="#lagrangian">lagrangian, equations of motion</a></li>
       <li><a href="#mass-matrix">the mass matrix M(θ)</a></li>
       <li><a href="#rhs">the right-hand side b(θ, ω)</a></li>
       <li><a href="#cramer">solving M·α = b by cramer&rsquo;s rule</a></li>
-      <li><a href="#rk4">runge–kutta 4</a></li>
+      <li><a href="#rk4">runge-kutta 4</a></li>
       <li><a href="#x87">x87 and the 80-bit angle</a></li>
       <li><a href="#numbers">numbers</a></li>
     </ol>
@@ -211,7 +210,7 @@
     V &nbsp;=&nbsp; −Σ<sub>k</sub> β<sub>k</sub> L<sub>k</sub> g cos θ<sub>k</sub>
     <span class="label">β<sub>k</sub> = Σ<sub>i ≥ k</sub> m<sub>i</sub></span>
   </div>
-  <p>the euler–lagrange equations <code>d/dt(∂L/∂ω<sub>j</sub>) − ∂L/∂θ<sub>j</sub> = 0</code> rearrange to the linear system</p>
+  <p>the euler-lagrange equations <code>d/dt(∂L/∂ω<sub>j</sub>) − ∂L/∂θ<sub>j</sub> = 0</code> rearrange to the linear system</p>
   <div class="math">
     Σ<sub>k</sub> M<sub>jk</sub> α<sub>k</sub> &nbsp;=&nbsp; b<sub>j</sub>
     <span class="label">α<sub>k</sub> = ω̇<sub>k</sub></span>
@@ -219,7 +218,7 @@
   <p>which is what the asm builds and solves every rk4 sub-stage.</p>
 
   <h2 id="mass-matrix"><span class="num">04 ▸</span>the mass matrix M(θ)</h2>
-  <p>collecting the kinetic-energy expansion gives this clean closed form:</p>
+  <p>collecting the kinetic-energy expansion gives:</p>
   <div class="math">
     M<sub>jk</sub>(θ) &nbsp;=&nbsp; α<sub>jk</sub> · cos(θ<sub>j</sub> − θ<sub>k</sub>)
     <span class="label">α<sub>jk</sub> = (Σ m<sub>i</sub>, i ≥ max(j, k)) · L<sub>j</sub> · L<sub>k</sub></span>
@@ -273,7 +272,7 @@ det  =  M11·A − M12·B + M13·C
 α3   = (−M11·E − M12·F + b1·C) / det</pre>
   <p>about 35 multiplies, 12 adds, 3 divides for the whole solve. the asm builds A through F into 80-bit scratch slots, then composes det and the three α<sub>i</sub> from those.</p>
 
-  <h2 id="rk4"><span class="num">07 ▸</span>runge–kutta 4</h2>
+  <h2 id="rk4"><span class="num">07 ▸</span>runge-kutta 4</h2>
   <p>classical fourth-order rk4 on the 6-vector y = (θ₁, θ₂, θ₃, ω₁, ω₂, ω₃):</p>
   <pre>k1 = f(y)
 k2 = f(y + (dt/2) k1)

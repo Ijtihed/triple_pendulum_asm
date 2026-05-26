@@ -1,4 +1,4 @@
-"""Reference triple-pendulum simulation. Use this to validate the asm port."""
+"""triple pendulum, python 64-bit rk4 reference at dt = 1e-4."""
 import math
 
 m1, m2, m3 = 1.0, 1.0, 1.0

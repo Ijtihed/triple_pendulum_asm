@@ -1,5 +1,4 @@
-"""Double pendulum: Python 64-bit RK4 reference. Same equations as the JS twin
-in viz.html, so a direct comparison validates the visualization."""
+"""double pendulum, python 64-bit rk4 reference at dt = 1e-4."""
 import math
 
 m1, m2 = 1.0, 1.0
