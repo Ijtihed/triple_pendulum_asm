@@ -90,8 +90,8 @@
     line-height: 1.9;
   }
   .canvas-stats b { color: var(--accent); font-weight: 400; }
-  .trace-btn {
-    position: absolute; bottom: 20px; left: 20px;
+  .trace-btn, .reset-btn {
+    position: absolute; bottom: 20px;
     background: rgba(5,5,5,0.85);
     border: 1px solid var(--line);
     color: var(--muted);
@@ -100,9 +100,18 @@
     padding: 8px 12px; cursor: none !important; z-index: 10;
     transition: color 0.2s, border-color 0.2s, background 0.2s;
   }
-  .trace-btn:hover { color: #fff; border-color: var(--muted); }
+  .trace-btn { left: 20px; }
+  .reset-btn { right: 20px; }
+  .trace-btn:hover, .reset-btn:hover { color: #fff; border-color: var(--muted); }
   .trace-btn.on { color: var(--accent); border-color: var(--accent);
     background: rgba(52,211,153,0.06); }
+  .drag-hint {
+    position: absolute; bottom: 24px; left: 0; right: 0;
+    text-align: center; pointer-events: none;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.5rem; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--dim2);
+  }
 
   /* side panel */
   .side {
@@ -277,11 +286,7 @@
 <main>
 
   <h1 class="name">triple_pendulum<span class="dot">.</span></h1>
-  <p class="tag"><b>asm ▸</b> sim &middot; lagrangian + rk4 + x87 80-bit precision</p>
-
-  <p class="lede">
-    no public triple pendulum implementation exists in pure assembly anywhere on the open web. searched github, sourceforge, gitlab, codeberg, rosetta code, the demoscene archives. zero hits across <code>language:Assembly</code>. even <em>double</em> pendulum doesn&rsquo;t exist in asm. so i wrote one. it ended up beating scipy&rsquo;s 8th-order <code>DOP853</code> in energy conservation, because the x87 fpu&rsquo;s 80-bit registers don&rsquo;t exist in c, python, rust, go, or js.
-  </p>
+  <p class="tag"><b>asm ▸</b> sim &middot; lagrangian + rk4 + x87 80-bit precision &middot; <a href="/how" style="color: var(--muted); border-bottom: 1px dotted var(--dim2);">read why &amp; how ↗</a></p>
 
   <div class="layout">
 
@@ -293,6 +298,8 @@
       </div>
       <div class="canvas-corner" id="cc">phase 1 / 5</div>
       <button class="trace-btn" id="trace-btn">trace ◯</button>
+      <button class="reset-btn" id="reset-btn">reset ↻</button>
+      <div class="drag-hint">drag a bob to set its starting angle</div>
     </div>
 
     <div class="side">
@@ -316,53 +323,8 @@
 
   </div>
 
-  <div class="sh">energy drift across implementations (triple pendulum)</div>
-  <p style="font-size: 0.78rem; color: var(--mute2); margin: 0 0 14px; line-height: 1.6;">
-    same physics, same initial conditions, same <code style="font-family:JetBrains Mono,monospace;color:var(--fg);">dt = 1e-4</code> for the rk4 columns. <code style="font-family:JetBrains Mono,monospace;color:var(--fg);">dE = E(t) − E(0)</code>, smaller is better.
-  </p>
-  <table class="cmp">
-    <thead><tr><th>step</th><th>scipy dop853</th><th>python rk4 64-bit</th><th>asm rk4 80-bit</th></tr></thead>
-    <tbody>
-      <tr><td>160</td><td>+3.1e-17</td><td>+7.2e-14</td><td class="win">−7.2e-18</td></tr>
-      <tr><td>1 120</td><td>+6.4e-14</td><td>+2.3e-13</td><td class="win">+7.4e-17</td></tr>
-      <tr><td>10 080</td><td>−4.4e-14</td><td>−3.1e-13</td><td class="win">+1.1e-15</td></tr>
-      <tr><td>100 000</td><td>−1.7e-12</td><td>+6.2e-12</td><td class="win">+1.4e-13</td></tr>
-      <tr><td>200 000</td><td>−5.8e-12</td><td>+1.2e-11</td><td class="win">−5.1e-13</td></tr>
-    </tbody>
-  </table>
-
-  <div class="sh">live from the real asm</div>
-  <p style="font-size: 0.78rem; color: var(--mute2); margin: 0 0 14px; line-height: 1.6;">
-    the browser visual above is a faithful js twin. the actual nasm binary runs in a terminal and prints its own energy diagnostic. captured from <code style="font-family:JetBrains Mono,monospace;color:var(--fg);">./triple_pendulum</code> on linux x86-64:
-  </p>
-  <pre class="terminal-block">$ <span class="acc">./triple_pendulum</span>
-                                       +
-                                       o
-                                       o
-                                       O
-triple_pendulum.asm | e=  -0.0000  de=-7.225e-18  step=160
-triple_pendulum.asm | e=  -0.0000  de=-4.490e-17  step=4960
-triple_pendulum.asm | e=   0.0000  de=+1.620e-15  step=9760
-triple_pendulum.asm | e=   0.0000  de=+1.124e-14  step=14560
-triple_pendulum.asm | e=   0.0000  de=+4.320e-15  step=19360
-triple_pendulum.asm | e=   0.0000  de=+3.244e-15  step=24160
-triple_pendulum.asm | e=   0.0000  de=+3.834e-15  step=28960
-triple_pendulum.asm | e=   0.0000  de=+4.045e-15  step=33760
-<span class="muted">(captured from nasm + gcc + wsl ubuntu 22.04)</span></pre>
-
-  <div class="sh">what&rsquo;s inside</div>
-  <div class="spec">
-    <div class="row"><div class="k">lagrangian</div><div class="v"><code>M_jk = α_jk · cos(θ_j − θ_k)</code> with <code>α_jk = (Σ m_i, i ≥ max(j,k)) · L_j · L_k</code></div></div>
-    <div class="row"><div class="k">solver</div><div class="v">cramer&rsquo;s rule. six shared 2&times;2 subdeterminants. three divides per derivative call.</div></div>
-    <div class="row"><div class="k">integrator</div><div class="v">classical runge / kutta 4 at <code>dt = 1e-4</code></div></div>
-    <div class="row"><div class="k">transcendentals</div><div class="v">six <code>fsincos</code> per derivative call. one instruction, both at once.</div></div>
-    <div class="row"><div class="k">storage</div><div class="v">state and cramer scratch as <code>tword</code> (x87 80-bit). every memory round trip preserves register precision.</div></div>
-    <div class="row"><div class="k">renderer</div><div class="v">ansi cursor escapes. ~30 fps in a vt100.</div></div>
-    <div class="row"><div class="k">source</div><div class="v">~570 lines of nasm. builds with <code>nasm + gcc</code> and links libc for <code>printf</code> + <code>usleep</code>.</div></div>
-  </div>
-
-  <footer>
-    the visual above runs a faithful javascript twin of the asm so you can watch the chaos in the browser. the asm itself is in the repo and runs in a terminal at 30 fps. for the math derivation, see <a href="/how">how this works</a>. the double-pendulum mode in the toggle uses the same algorithm with a 2&times;2 mass matrix.
+  <footer style="border-top: none; padding-top: 12px; text-align: center; font-size: 0.55rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim);">
+    js twin of the asm &middot; <a href="/how" style="color: var(--mute2); border-bottom: none;">read why &amp; how ↗</a>
   </footer>
 
 </main>
@@ -666,6 +628,85 @@ function setTrace(on) {
   if (on) trails = L_arr.map(() => []);
 }
 
+function resetState() {
+  if (mode === 'triple') y = [Math.PI/2, Math.PI/2, Math.PI/2, 0, 0, 0];
+  else                   y = [Math.PI/2, Math.PI/2, 0, 0];
+  step = 0;
+  trails = L_arr.map(() => []);
+}
+
+// ----------------------------------------------------------------------------
+//  drag-to-set initial state. mouse / touch down on a bob -> drag updates
+//  that bob's angle (and zeros omegas) -> release resumes physics from there.
+// ----------------------------------------------------------------------------
+let dragBob = -1;
+
+function getCanvasCoord(e) {
+  const t = (e.touches && e.touches[0]) || e;
+  const rect = canvas.getBoundingClientRect();
+  return { x: t.clientX - rect.left, y: t.clientY - rect.top, w: rect.width, h: rect.height };
+}
+
+function bobScreenPositions(w, h) {
+  const px = w/2, py = h*0.22;
+  const totalReach = L_arr.reduce((s,v)=>s+v,0);
+  const scale = Math.min(w, h) / (totalReach * 2.3 + 1);
+  const out = [];
+  let cx = 0, cy = 0;
+  for (let i = 0; i < L_arr.length; i++) {
+    cx += L_arr[i] * Math.sin(y[i]);
+    cy += L_arr[i] * Math.cos(y[i]);
+    out.push([px + cx*scale, py + cy*scale, px, py, scale]);
+  }
+  return out;
+}
+
+function startDrag(e) {
+  const { x, y: cy, w, h } = getCanvasCoord(e);
+  const bobs = bobScreenPositions(w, h);
+  let best = 24, idx = -1;
+  for (let i = 0; i < bobs.length; i++) {
+    const dx = x - bobs[i][0], dy = cy - bobs[i][1];
+    const d = Math.hypot(dx, dy);
+    if (d < best) { best = d; idx = i; }
+  }
+  if (idx >= 0) {
+    dragBob = idx;
+    e.preventDefault();
+  }
+}
+
+function moveDrag(e) {
+  if (dragBob < 0) return;
+  const { x, y: cy, w, h } = getCanvasCoord(e);
+  const px = w/2, py = h*0.22;
+  // anchor point: pivot for bob 0, previous bob for bob i>0
+  let ax = px, ay = py;
+  const totalReach = L_arr.reduce((s,v)=>s+v,0);
+  const scale = Math.min(w, h) / (totalReach * 2.3 + 1);
+  let cx = 0, cyp = 0;
+  for (let i = 0; i < dragBob; i++) {
+    cx += L_arr[i] * Math.sin(y[i]);
+    cyp += L_arr[i] * Math.cos(y[i]);
+  }
+  ax = px + cx*scale; ay = py + cyp*scale;
+  const dx = x - ax, dy = cy - ay;
+  y[dragBob] = Math.atan2(dx, dy);
+  // zero all omegas so the pendulum starts at rest after the drag
+  const n = L_arr.length;
+  for (let i = 0; i < n; i++) y[n + i] = 0;
+  e.preventDefault();
+}
+
+function endDrag() { dragBob = -1; }
+
+canvas.addEventListener('mousedown', startDrag);
+window.addEventListener('mousemove', moveDrag);
+window.addEventListener('mouseup', endDrag);
+canvas.addEventListener('touchstart', startDrag, { passive: false });
+window.addEventListener('touchmove', moveDrag, { passive: false });
+window.addEventListener('touchend', endDrag);
+
 function buildPhases() {
   const root = document.getElementById('plist');
   root.innerHTML = phases.map((p, i) => `
@@ -810,7 +851,11 @@ let lastW = 0, lastH = 0;
 //  loop
 // ============================================================================
 function loop(ts) {
-  for (let i = 0; i < 80; i++) { y = rk4(y, deriv); step++; }
+  // pause physics while the user is dragging a bob so their drag input
+  // doesn't get instantly overwritten by the integrator
+  if (dragBob < 0) {
+    for (let i = 0; i < 80; i++) { y = rk4(y, deriv); step++; }
+  }
   if (ts - lastSwitch > 1500) {
     lastSwitch = ts;
     phaseIdx = (phaseIdx + 1) % phases.length;
@@ -829,6 +874,7 @@ document.querySelectorAll('.toggle button').forEach(b => {
   b.addEventListener('click', () => loadMode(b.dataset.mode));
 });
 document.getElementById('trace-btn').addEventListener('click', () => setTrace(!traceForever));
+document.getElementById('reset-btn').addEventListener('click', resetState);
 
 loadMode('triple');
 requestAnimationFrame(loop);

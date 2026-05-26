@@ -165,10 +165,45 @@
   <p class="tag"><b>asm ▸</b> derivation, solver, integrator, precision</p>
 
   <p class="lede">
-    walk-through of the math, the solver, and the precision tricks behind
-    <em>triple_pendulum.asm</em>. nothing here is novel. the lagrangian
-    derivation is in every classical-mechanics textbook. but assembling it
-    in one place at the level needed to write it in nasm is its own thing.
+    no public triple pendulum implementation exists in pure assembly anywhere on the open web. searched github, sourceforge, gitlab, codeberg, rosetta code, the demoscene archives. zero hits across <code>language:Assembly</code>. even <em>double</em> pendulum doesn&rsquo;t exist in asm. so i wrote one. it ended up beating scipy&rsquo;s 8th-order <code>DOP853</code> in energy conservation, because the x87 fpu&rsquo;s 80-bit registers don&rsquo;t exist in c, python, rust, go, or js.
+  </p>
+
+  <h2 style="margin-top: 48px;"><span class="num">▸</span>energy drift across implementations</h2>
+  <p style="font-size: 0.85rem; color: var(--muted); margin: 0 0 14px;">
+    same physics, same initial conditions, same <code>dt = 1e-4</code> for the rk4 columns. <code>dE = E(t) − E(0)</code>, smaller is better.
+  </p>
+  <table class="cmp">
+    <thead><tr><th>step</th><th>scipy dop853</th><th>python rk4 64-bit</th><th>asm rk4 80-bit</th></tr></thead>
+    <tbody>
+      <tr><td>160</td><td>+3.1e-17</td><td>+7.2e-14</td><td class="win">−7.2e-18</td></tr>
+      <tr><td>1 120</td><td>+6.4e-14</td><td>+2.3e-13</td><td class="win">+7.4e-17</td></tr>
+      <tr><td>10 080</td><td>−4.4e-14</td><td>−3.1e-13</td><td class="win">+1.1e-15</td></tr>
+      <tr><td>100 000</td><td>−1.7e-12</td><td>+6.2e-12</td><td class="win">+1.4e-13</td></tr>
+      <tr><td>200 000</td><td>−5.8e-12</td><td>+1.2e-11</td><td class="win">−5.1e-13</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="margin-top: 56px;"><span class="num">▸</span>live from the real asm</h2>
+  <p style="font-size: 0.85rem; color: var(--muted); margin: 0 0 14px;">
+    the browser visual on the home page is a faithful js twin. the actual nasm binary runs in a terminal and prints its own energy diagnostic. captured from <code>./triple_pendulum</code> on linux x86-64:
+  </p>
+  <pre style="white-space: pre;">$ <span class="acc">./triple_pendulum</span>
+                                       +
+                                       o
+                                       o
+                                       O
+triple_pendulum.asm | e=  -0.0000  de=-7.225e-18  step=160
+triple_pendulum.asm | e=  -0.0000  de=-4.490e-17  step=4960
+triple_pendulum.asm | e=   0.0000  de=+1.620e-15  step=9760
+triple_pendulum.asm | e=   0.0000  de=+1.124e-14  step=14560
+triple_pendulum.asm | e=   0.0000  de=+4.320e-15  step=19360
+triple_pendulum.asm | e=   0.0000  de=+3.244e-15  step=24160
+triple_pendulum.asm | e=   0.0000  de=+3.834e-15  step=28960
+triple_pendulum.asm | e=   0.0000  de=+4.045e-15  step=33760
+<span class="com">(captured from nasm + gcc + wsl ubuntu 22.04)</span></pre>
+
+  <p style="margin-top: 56px; color: var(--mute2); font-size: 0.85rem;">
+    the rest of this page walks through the math, the solver, and the precision tricks behind <em>triple_pendulum.asm</em>. nothing here is novel. the lagrangian derivation is in every classical-mechanics textbook. but assembling it in one place at the level needed to write it in nasm is its own thing.
   </p>
 
   <div class="toc">
@@ -308,18 +343,7 @@ y  ← y + (dt/6) · (k1 + 2 k2 + 2 k3 + k4)</pre>
   <p>there is one annoying x87 quirk worth flagging: <code>fld</code> / <code>fstp</code> accept m80fp, but the binary ops <code>fadd</code>, <code>fsub</code>, <code>fmul</code>, <code>fdiv</code> only accept m32fp or m64fp memory operands. so every 80-bit operand has to come into a register via <code>fld tword</code> first, then combine register-to-register with the popping variants (<code>faddp</code>, <code>fsubp</code>, <code>fmulp</code>, <code>fdivp</code>). this is the only reason the asm uses pairs of instructions where python uses one.</p>
 
   <h2 id="numbers"><span class="num">09 ▸</span>numbers</h2>
-  <p>energy drift, measured live from the same physics with the same initial conditions:</p>
-  <table class="cmp">
-    <thead><tr><th>step</th><th>scipy dop853</th><th>python rk4 64-bit</th><th>asm rk4 80-bit</th></tr></thead>
-    <tbody>
-      <tr><td>160</td><td>+3.1e-17</td><td>+7.2e-14</td><td class="win">−7.2e-18</td></tr>
-      <tr><td>1 120</td><td>+6.4e-14</td><td>+2.3e-13</td><td class="win">+7.4e-17</td></tr>
-      <tr><td>10 080</td><td>−4.4e-14</td><td>−3.1e-13</td><td class="win">+1.1e-15</td></tr>
-      <tr><td>100 000</td><td>−1.7e-12</td><td>+6.2e-12</td><td class="win">+1.4e-13</td></tr>
-      <tr><td>200 000</td><td>−5.8e-12</td><td>+1.2e-11</td><td class="win">−5.1e-13</td></tr>
-    </tbody>
-  </table>
-  <p>at short times the asm is four orders of magnitude better than python rk4 (because 80-bit roundoff is tiny). at long times it beats scipy&rsquo;s 8th-order adaptive integrator by ten times, despite being 4th-order, because scipy still does its arithmetic at 64-bit and accumulates roundoff per internal step.</p>
+  <p>at short times the asm is four orders of magnitude better than python rk4 (because 80-bit roundoff is tiny). at long times it beats scipy&rsquo;s 8th-order adaptive integrator by ten times, despite being 4th-order, because scipy still does its arithmetic at 64-bit and accumulates roundoff per internal step. (the full energy table is at the top of this page.)</p>
   <p>scipy is more accurate in <em>state</em> per unit of cpu work. that&rsquo;s what it&rsquo;s designed for. energy conservation is a different metric, and at long times it&rsquo;s arithmetic precision that determines it, which is where 80-bit wins.</p>
 
   <footer>
