@@ -113,6 +113,50 @@
     color: var(--dim2);
   }
 
+  /* initial-angles panel below canvas */
+  .init-panel {
+    margin-top: 12px; padding: 10px 16px;
+    border: 1px solid var(--line); background: #050505;
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 16px;
+    font-family: "JetBrains Mono", monospace; font-size: 0.55rem;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--mute2);
+  }
+  .init-panel .init-label { color: var(--fg); margin-right: 4px; }
+  .init-panel label.sl { display: inline-flex; align-items: center; gap: 8px;
+    color: var(--muted); flex: 1; min-width: 130px; }
+  .init-panel input[type=range] {
+    flex: 1; appearance: none; -webkit-appearance: none;
+    background: transparent; height: 14px; cursor: none !important;
+  }
+  .init-panel input[type=range]::-webkit-slider-runnable-track {
+    height: 1px; background: var(--line2);
+  }
+  .init-panel input[type=range]::-moz-range-track {
+    height: 1px; background: var(--line2);
+  }
+  .init-panel input[type=range]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none;
+    width: 9px; height: 9px; border-radius: 50% !important;
+    background: var(--accent); margin-top: -4px;
+    border: 2px solid #050505;
+    box-shadow: 0 0 8px rgba(52,211,153,0.6);
+  }
+  .init-panel input[type=range]::-moz-range-thumb {
+    width: 9px; height: 9px; border-radius: 50% !important;
+    background: var(--accent); border: 2px solid #050505;
+    box-shadow: 0 0 8px rgba(52,211,153,0.6);
+  }
+  .init-btn {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--muted); font-family: "JetBrains Mono", monospace;
+    font-size: 0.55rem; letter-spacing: 0.22em; text-transform: uppercase;
+    padding: 6px 10px; cursor: none !important;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+  .init-btn:hover { color: var(--accent); border-color: var(--accent);
+    background: rgba(52,211,153,0.06); }
+
   /* side panel */
   .side {
     border: 1px solid var(--line); background: #050505;
@@ -264,6 +308,11 @@
     .spec .row { grid-template-columns: 1fr; gap: 4px; }
     .spec .k { margin-bottom: 0; }
     pre.terminal-block { font-size: 0.6rem; line-height: 1.6; padding: 14px 14px; }
+    .tag { font-size: 0.5rem; line-height: 1.8; }
+    .init-panel { gap: 10px; padding: 10px 12px; font-size: 0.5rem; }
+    .init-panel label.sl { flex-basis: 100%; min-width: 0; }
+    .init-panel .init-label { flex-basis: 100%; }
+    .init-btn { width: 100%; padding: 8px; }
   }
 </style>
 </head>
@@ -286,20 +335,29 @@
 <main>
 
   <h1 class="name">triple_pendulum<span class="dot">.</span></h1>
-  <p class="tag"><b>asm ▸</b> sim &middot; lagrangian + rk4 + x87 80-bit precision &middot; <a href="/how" style="color: var(--muted); border-bottom: 1px dotted var(--dim2);">read why &amp; how ↗</a></p>
+  <p class="tag"><b>asm ▸</b> js twin of the real x86-64 nasm binary &middot; same algorithm, 64-bit instead of 80-bit &middot; <a href="/how" style="color: var(--muted); border-bottom: 1px dotted var(--dim2);">see the real asm output ↗</a></p>
 
   <div class="layout">
 
-    <div class="canvas-wrap">
-      <canvas id="c" width="1100" height="1080"></canvas>
-      <div class="canvas-stats">
-        <div>step <b id="st">0</b></div>
-        <div>t <b id="tm">0.000</b> s</div>
+    <div>
+      <div class="canvas-wrap">
+        <canvas id="c" width="1100" height="1080"></canvas>
+        <div class="canvas-stats">
+          <div>step <b id="st">0</b></div>
+          <div>t <b id="tm">0.000</b> s</div>
+        </div>
+        <div class="canvas-corner" id="cc">phase 1 / 5</div>
+        <button class="trace-btn" id="trace-btn">trace ◯</button>
+        <button class="reset-btn" id="reset-btn">reset ↻</button>
+        <div class="drag-hint">drag a bob to set its starting angle</div>
       </div>
-      <div class="canvas-corner" id="cc">phase 1 / 5</div>
-      <button class="trace-btn" id="trace-btn">trace ◯</button>
-      <button class="reset-btn" id="reset-btn">reset ↻</button>
-      <div class="drag-hint">drag a bob to set its starting angle</div>
+      <div class="init-panel">
+        <span class="init-label">initial angles</span>
+        <label class="sl" data-i="0">θ₁ <input type="range" min="-3.14159" max="3.14159" step="0.0001" /></label>
+        <label class="sl" data-i="1">θ₂ <input type="range" min="-3.14159" max="3.14159" step="0.0001" /></label>
+        <label class="sl" id="th3-wrap" data-i="2">θ₃ <input type="range" min="-3.14159" max="3.14159" step="0.0001" /></label>
+        <button class="init-btn" id="kick-btn" title="random angular velocities">kick ⚡</button>
+      </div>
     </div>
 
     <div class="side">
@@ -617,6 +675,7 @@ function loadMode(m) {
   buildPhases();
   setPhase(0);
   document.querySelectorAll('.toggle button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  syncSliders();
 }
 
 function setTrace(on) {
@@ -631,6 +690,31 @@ function setTrace(on) {
 function resetState() {
   if (mode === 'triple') y = [Math.PI/2, Math.PI/2, Math.PI/2, 0, 0, 0];
   else                   y = [Math.PI/2, Math.PI/2, 0, 0];
+  step = 0;
+  trails = L_arr.map(() => []);
+  syncSliders();
+}
+
+// ----- initial-angle sliders + kick -----
+function syncSliders() {
+  const sliders = document.querySelectorAll('.init-panel input[type=range]');
+  sliders.forEach((s, i) => { if (i < L_arr.length) s.value = y[i]; });
+  // hide third slider in double mode
+  const th3 = document.getElementById('th3-wrap');
+  if (th3) th3.style.display = L_arr.length === 3 ? '' : 'none';
+}
+
+function onSliderInput(i, val) {
+  y[i] = parseFloat(val);
+  const n = L_arr.length;
+  for (let k = 0; k < n; k++) y[n + k] = 0;
+  step = 0;
+  trails = L_arr.map(() => []);
+}
+
+function kick() {
+  const n = L_arr.length;
+  for (let i = 0; i < n; i++) y[n + i] = (Math.random() * 2 - 1) * 4;
   step = 0;
   trails = L_arr.map(() => []);
 }
@@ -695,6 +779,9 @@ function moveDrag(e) {
   // zero all omegas so the pendulum starts at rest after the drag
   const n = L_arr.length;
   for (let i = 0; i < n; i++) y[n + i] = 0;
+  // keep the slider for the dragged bob in sync
+  const sliders = document.querySelectorAll('.init-panel input[type=range]');
+  if (sliders[dragBob]) sliders[dragBob].value = y[dragBob];
   e.preventDefault();
 }
 
@@ -878,6 +965,10 @@ document.querySelectorAll('.toggle button').forEach(b => {
 });
 document.getElementById('trace-btn').addEventListener('click', () => setTrace(!traceForever));
 document.getElementById('reset-btn').addEventListener('click', resetState);
+document.getElementById('kick-btn').addEventListener('click', kick);
+document.querySelectorAll('.init-panel input[type=range]').forEach((s, i) => {
+  s.addEventListener('input', e => onSliderInput(i, e.target.value));
+});
 
 loadMode('triple');
 requestAnimationFrame(loop);
