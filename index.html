@@ -699,13 +699,7 @@ function moveDrag(e) {
 }
 
 function endDrag() { dragBob = -1; }
-
-canvas.addEventListener('mousedown', startDrag);
-window.addEventListener('mousemove', moveDrag);
-window.addEventListener('mouseup', endDrag);
-canvas.addEventListener('touchstart', startDrag, { passive: false });
-window.addEventListener('touchmove', moveDrag, { passive: false });
-window.addEventListener('touchend', endDrag);
+// listeners are attached after the canvas const is declared below.
 
 function buildPhases() {
   const root = document.getElementById('plist');
@@ -739,6 +733,15 @@ function setPhase(i) {
 // ============================================================================
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+
+// now that canvas is defined, hook up the drag-to-set listeners
+canvas.addEventListener('mousedown', startDrag);
+window.addEventListener('mousemove', moveDrag);
+window.addEventListener('mouseup', endDrag);
+canvas.addEventListener('touchstart', startDrag, { passive: false });
+window.addEventListener('touchmove', moveDrag, { passive: false });
+window.addEventListener('touchend', endDrag);
+
 function fit() {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
